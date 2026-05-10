@@ -1,4 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
@@ -65,6 +66,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Loadable<JellyfinItem[]>>(initialItems);
   const [selectedItem, setSelectedItem] = useState<JellyfinItem>();
+  const [playbackItem, setPlaybackItem] = useState<JellyfinItem>();
   const [detailError, setDetailError] = useState<string>();
 
   const canSubmit = useMemo(
@@ -200,6 +202,7 @@ export default function App() {
     setSelectedLibrary(undefined);
     setSearchResults(initialItems);
     setSelectedItem(undefined);
+    setPlaybackItem(undefined);
   }, []);
 
   const handleSearch = useCallback(async () => {
@@ -240,7 +243,12 @@ export default function App() {
     }
   }, [replaceItem, session]);
 
-  const handlePlay = useCallback(async (item: JellyfinItem) => {
+  const handlePlayInApp = useCallback((item: JellyfinItem) => {
+    setDetailError(undefined);
+    setPlaybackItem(item);
+  }, []);
+
+  const handlePlayExternal = useCallback(async (item: JellyfinItem) => {
     if (!session) {
       return;
     }
@@ -249,7 +257,7 @@ export default function App() {
     try {
       await Linking.openURL(getStreamUrl(session.serverUrl, item, session.accessToken));
     } catch (error) {
-      setDetailError(error instanceof Error ? error.message : 'Unable to open this item for playback.');
+      setDetailError(error instanceof Error ? error.message : 'Unable to open this item for external playback.');
     }
   }, [session]);
 
@@ -404,11 +412,22 @@ export default function App() {
           setSelectedItem(undefined);
           setDetailError(undefined);
         }}
-        onPlay={handlePlay}
+        onPlayExternal={handlePlayExternal}
+        onPlayInApp={handlePlayInApp}
         onToggleFavorite={handleToggleFavorite}
         serverUrl={session.serverUrl}
         token={session.accessToken}
       />
+
+      {playbackItem ? (
+        <InAppPlayerModal
+          item={playbackItem}
+          key={playbackItem.Id}
+          onClose={() => setPlaybackItem(undefined)}
+          serverUrl={session.serverUrl}
+          token={session.accessToken}
+        />
+      ) : undefined}
     </SafeAreaView>
   );
 }
@@ -648,7 +667,8 @@ function ItemDetailsModal({
   detailError,
   item,
   onClose,
-  onPlay,
+  onPlayExternal,
+  onPlayInApp,
   onToggleFavorite,
   serverUrl,
   token,
@@ -656,7 +676,8 @@ function ItemDetailsModal({
   detailError?: string;
   item?: JellyfinItem;
   onClose: () => void;
-  onPlay: (item: JellyfinItem) => void;
+  onPlayExternal: (item: JellyfinItem) => void;
+  onPlayInApp: (item: JellyfinItem) => void;
   onToggleFavorite: (item: JellyfinItem) => void;
   serverUrl: string;
   token: string;
@@ -684,7 +705,8 @@ function ItemDetailsModal({
             {item.Overview ? <Text style={styles.detailOverview}>{item.Overview}</Text> : undefined}
             {detailError ? <Text style={styles.errorText}>{detailError}</Text> : undefined}
             <View style={styles.actionStack}>
-              <Button label="Play externally" onPress={() => onPlay(item)} />
+              <Button label="Play in app" onPress={() => onPlayInApp(item)} />
+              <Button label="Open in external player" onPress={() => onPlayExternal(item)} variant="secondary" />
               <Button
                 label={item.UserData?.IsFavorite ? 'Remove favorite' : 'Add favorite'}
                 onPress={() => onToggleFavorite(item)}
@@ -695,6 +717,50 @@ function ItemDetailsModal({
           </ScrollView>
         </View>
       </View>
+    </Modal>
+  );
+}
+
+
+function InAppPlayerModal({
+  item,
+  onClose,
+  serverUrl,
+  token,
+}: {
+  item: JellyfinItem;
+  onClose: () => void;
+  serverUrl: string;
+  token: string;
+}) {
+  const source = useMemo(() => ({ uri: getStreamUrl(serverUrl, item, token) }), [item, serverUrl, token]);
+  const player = useVideoPlayer(source, (videoPlayer: { play: () => void }) => {
+    videoPlayer.play();
+  });
+
+  return (
+    <Modal animationType="slide" onRequestClose={onClose} visible>
+      <SafeAreaView style={styles.playerContainer}>
+        <StatusBar style="light" />
+        <View style={styles.playerHeader}>
+          <View style={styles.flex}>
+            <Text style={styles.kicker}>In-app MPV-style player</Text>
+            <Text numberOfLines={1} style={styles.playerTitle}>{item.Name}</Text>
+          </View>
+          <Button label="Done" onPress={onClose} variant="secondary" />
+        </View>
+        <VideoView
+          allowsFullscreen
+          allowsPictureInPicture
+          contentFit="contain"
+          nativeControls
+          player={player}
+          style={styles.videoPlayer}
+        />
+        <Text style={styles.playerHint}>
+          Streaming directly from Jellyfin with the app's embedded player. Use the external player option if a codec is not supported by this device.
+        </Text>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -901,6 +967,33 @@ const styles = StyleSheet.create({
   },
   posterImage: {
     height: '100%',
+    width: '100%',
+  },
+  playerContainer: {
+    backgroundColor: '#05070d',
+    flex: 1,
+  },
+  playerHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+    padding: spacing.md,
+  },
+  playerHint: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 20,
+    padding: spacing.md,
+  },
+  playerTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '900',
+    marginTop: spacing.xs,
+  },
+  videoPlayer: {
+    backgroundColor: '#000',
+    flex: 1,
     width: '100%',
   },
   progressText: {

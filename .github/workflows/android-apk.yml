@@ -75,4 +75,3 @@ jobs:
           name: jellyfin-mobile-release-apk
           path: artifacts/jellyfin-mobile-release.apk
           if-no-files-found: error
-

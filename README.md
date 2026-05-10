@@ -10,7 +10,7 @@ A lightweight Expo React Native mobile client for Jellyfin. The app signs in to 
 - Home dashboard with user libraries, continue watching, and recently added media.
 - Library browsing with selectable Jellyfin collections.
 - Server-wide search across movies, shows, episodes, albums, and songs.
-- Item detail sheets with overview, runtime, progress, favorite toggling, and external playback links.
+- Item detail sheets with overview, runtime, progress, favorite toggling, embedded MPV-style playback, and external playback links.
 - Pull-to-refresh and sign-out support.
 - Dark Jellyfin-inspired mobile UI.
 
@@ -18,7 +18,7 @@ A lightweight Expo React Native mobile client for Jellyfin. The app signs in to 
 
 ## Core client coverage
 
-This scaffold now covers the important pieces expected from a Jellyfin mobile client: authentication, persisted sessions, library browsing, search, resume/continue watching, recently added media, poster art, favorite management, item details, and opening server stream URLs in a player registered on the device.
+This scaffold now covers the important pieces expected from a Jellyfin mobile client: authentication, persisted sessions, library browsing, search, resume/continue watching, recently added media, poster art, favorite management, item details, embedded MPV-style playback, and opening server stream URLs in a player registered on the device.
 
 ## Preview
 
