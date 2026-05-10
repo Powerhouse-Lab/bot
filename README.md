@@ -42,6 +42,13 @@ Then open the app in Expo Go or an emulator and enter your Jellyfin server URL p
 - `npm run typecheck` - run TypeScript without emitting files.
 
 
+
+## Playback and caching
+
+The in-app player requests Jellyfin direct streams by default (`Static=true`) to avoid server transcoding. If a file cannot be decoded by the device, disable **Force direct video** in Settings or use **Open in external player** with an installed player such as mpv-android.
+
+Video caching can be enabled from Settings. The app uses `expo-video` source caching for direct streams, exposes 512 MB / 1 GB / 2 GB preferred cache limits, shows current cache usage, and can clear the cache when no player is active.
+
 ## Build an APK with GitHub Actions
 
 This repository includes a workflow at `.github/workflows/android-apk.yml` that can build a signed Android release APK directly in GitHub Actions without committing the generated `android/` folder.

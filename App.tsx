@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { clearVideoCacheAsync, getCurrentVideoCacheSize, setVideoCacheSizeAsync, useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
@@ -14,6 +14,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  Switch,
   TextInput,
   View,
 } from 'react-native';
@@ -34,8 +35,9 @@ import {
 import { Button } from './src/components/Button';
 import { EmptyState } from './src/components/EmptyState';
 import { clearSession, loadSession, saveSession } from './src/storage/session';
+import { defaultSettings, loadSettings, saveSettings } from './src/storage/settings';
 import { colors, spacing } from './src/theme';
-import { JellyfinItem, JellyfinLibrary, JellyfinSession, PublicSystemInfo } from './src/types';
+import { AppSettings, JellyfinItem, JellyfinLibrary, JellyfinSession, PublicSystemInfo } from './src/types';
 
 type Loadable<T> = {
   data: T;
@@ -43,7 +45,7 @@ type Loadable<T> = {
   error?: string;
 };
 
-type HomeSection = 'home' | 'library' | 'search';
+type HomeSection = 'home' | 'library' | 'search' | 'settings';
 
 const initialLibraries: Loadable<JellyfinLibrary[]> = { data: [], loading: false };
 const initialItems: Loadable<JellyfinItem[]> = { data: [], loading: false };
@@ -67,6 +69,7 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<Loadable<JellyfinItem[]>>(initialItems);
   const [selectedItem, setSelectedItem] = useState<JellyfinItem>();
   const [playbackItem, setPlaybackItem] = useState<JellyfinItem>();
+  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [detailError, setDetailError] = useState<string>();
 
   const canSubmit = useMemo(
@@ -77,8 +80,11 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
 
-    loadSession()
-      .then((storedSession) => {
+    Promise.all([loadSession(), loadSettings()])
+      .then(([storedSession, storedSettings]) => {
+        if (isMounted) {
+          setSettings(storedSettings);
+        }
         if (isMounted && storedSession) {
           setSession(storedSession);
           setServerUrl(storedSession.serverUrl);
@@ -95,6 +101,22 @@ export default function App() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isBooting) {
+      saveSettings(settings);
+    }
+  }, [isBooting, settings]);
+
+  useEffect(() => {
+    if (playbackItem) {
+      return;
+    }
+
+    setVideoCacheSizeAsync(settings.videoCachingEnabled ? settings.videoCacheSizeMb * 1024 * 1024 : 0).catch(() => {
+      // Cache sizing depends on native video support and can fail before the player module is ready.
+    });
+  }, [playbackItem, settings.videoCacheSizeMb, settings.videoCachingEnabled]);
 
   const refreshHome = useCallback(async (activeSession: JellyfinSession) => {
     setLibraries((current: Loadable<JellyfinLibrary[]>) => ({ ...current, loading: true, error: undefined }));
@@ -255,11 +277,11 @@ export default function App() {
 
     setDetailError(undefined);
     try {
-      await Linking.openURL(getStreamUrl(session.serverUrl, item, session.accessToken));
+      await Linking.openURL(getStreamUrl(session.serverUrl, item, session.accessToken, { forceDirectPlay: settings.forceDirectPlay }));
     } catch (error) {
       setDetailError(error instanceof Error ? error.message : 'Unable to open this item for external playback.');
     }
-  }, [session]);
+  }, [session, settings.forceDirectPlay]);
 
   if (isBooting) {
     return (
@@ -356,6 +378,7 @@ export default function App() {
               <Segment label="Home" selected={activeSection === 'home'} onPress={() => setActiveSection('home')} />
               <Segment label="Library" selected={activeSection === 'library'} onPress={() => setActiveSection('library')} />
               <Segment label="Search" selected={activeSection === 'search'} onPress={() => setActiveSection('search')} />
+              <Segment label="Settings" selected={activeSection === 'settings'} onPress={() => setActiveSection('settings')} />
             </View>
 
             {activeSection === 'home' ? (
@@ -396,6 +419,13 @@ export default function App() {
                 token={session.accessToken}
               />
             ) : undefined}
+
+            {activeSection === 'settings' ? (
+              <SettingsContent
+                onChangeSettings={setSettings}
+                settings={settings}
+              />
+            ) : undefined}
           </View>
         }
         contentContainerStyle={styles.homeContent}
@@ -425,6 +455,7 @@ export default function App() {
           key={playbackItem.Id}
           onClose={() => setPlaybackItem(undefined)}
           serverUrl={session.serverUrl}
+          settings={settings}
           token={session.accessToken}
         />
       ) : undefined}
@@ -562,6 +593,109 @@ function SearchContent({
       />
     </View>
   );
+}
+
+
+function SettingsContent({
+  onChangeSettings,
+  settings,
+}: {
+  onChangeSettings: (settings: AppSettings) => void;
+  settings: AppSettings;
+}) {
+  const [cacheSizeText, setCacheSizeText] = useState('Unknown');
+  const updateSetting = useCallback(<Key extends keyof AppSettings,>(key: Key, value: AppSettings[Key]) => {
+    onChangeSettings({ ...settings, [key]: value });
+  }, [onChangeSettings, settings]);
+
+  const refreshCacheSize = useCallback(() => {
+    getCurrentVideoCacheSize()
+      .then((bytes: number) => setCacheSizeText(formatBytes(bytes)))
+      .catch(() => setCacheSizeText('Unavailable'));
+  }, []);
+
+  const clearCache = useCallback(() => {
+    clearVideoCacheAsync()
+      .then(() => setCacheSizeText('0 MB'))
+      .catch(() => setCacheSizeText('Close the player and try again'));
+  }, []);
+
+  useEffect(() => {
+    refreshCacheSize();
+  }, [refreshCacheSize]);
+
+  return (
+    <View>
+      <Text style={styles.sectionTitle}>Playback settings</Text>
+      <SettingsRow
+        description="Always request Jellyfin's static original stream. If the device cannot decode the file, playback fails instead of transcoding."
+        label="Force direct video"
+        onValueChange={(value) => updateSetting('forceDirectPlay', value)}
+        value={settings.forceDirectPlay}
+      />
+      <SettingsRow
+        description="Use the embedded video cache for direct streams to reduce repeat network usage."
+        label="Cache video"
+        onValueChange={(value) => updateSetting('videoCachingEnabled', value)}
+        value={settings.videoCachingEnabled}
+      />
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsLabel}>Preferred cache size</Text>
+        <Text style={styles.settingsDescription}>Current limit: {settings.videoCacheSizeMb} MB</Text>
+        <View style={styles.cacheSizeRow}>
+          {[512, 1024, 2048].map((sizeMb) => (
+            <Pressable
+              key={sizeMb}
+              onPress={() => updateSetting('videoCacheSizeMb', sizeMb)}
+              style={[styles.cacheSizePill, settings.videoCacheSizeMb === sizeMb ? styles.cacheSizePillActive : undefined]}
+            >
+              <Text style={styles.cacheSizeText}>{sizeMb >= 1024 ? `${sizeMb / 1024} GB` : `${sizeMb} MB`}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+      <View style={styles.settingsCard}>
+        <Text style={styles.settingsLabel}>Video cache used</Text>
+        <Text style={styles.settingsDescription}>{cacheSizeText}</Text>
+        <View style={styles.settingsActions}>
+          <Button label="Refresh" onPress={refreshCacheSize} variant="secondary" />
+          <Button label="Clear cache" onPress={clearCache} variant="secondary" />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function SettingsRow({
+  description,
+  label,
+  onValueChange,
+  value,
+}: {
+  description: string;
+  label: string;
+  onValueChange: (value: boolean) => void;
+  value: boolean;
+}) {
+  return (
+    <View style={styles.settingsCard}>
+      <View style={styles.settingsRowHeader}>
+        <View style={styles.flex}>
+          <Text style={styles.settingsLabel}>{label}</Text>
+          <Text style={styles.settingsDescription}>{description}</Text>
+        </View>
+        <Switch onValueChange={onValueChange} thumbColor={colors.text} trackColor={{ false: colors.border, true: colors.primary }} value={value} />
+      </View>
+    </View>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) {
+    return `${Math.round(bytes / 1024)} KB`;
+  }
+
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function Segment({ label, onPress, selected }: { label: string; onPress: () => void; selected: boolean }) {
@@ -726,14 +860,19 @@ function InAppPlayerModal({
   item,
   onClose,
   serverUrl,
+  settings,
   token,
 }: {
   item: JellyfinItem;
   onClose: () => void;
   serverUrl: string;
+  settings: AppSettings;
   token: string;
 }) {
-  const source = useMemo(() => ({ uri: getStreamUrl(serverUrl, item, token) }), [item, serverUrl, token]);
+  const source = useMemo(() => ({
+    uri: getStreamUrl(serverUrl, item, token, { forceDirectPlay: settings.forceDirectPlay }),
+    useCaching: settings.videoCachingEnabled,
+  }), [item, serverUrl, settings.forceDirectPlay, settings.videoCachingEnabled, token]);
   const player = useVideoPlayer(source, (videoPlayer: { play: () => void }) => {
     videoPlayer.play();
   });
@@ -815,6 +954,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginTop: spacing.md,
+  },
+  cacheSizePill: {
+    backgroundColor: colors.panelRaised,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  cacheSizePillActive: {
+    borderColor: colors.primary,
+  },
+  cacheSizeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  cacheSizeText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
   },
   favoriteBadge: {
     backgroundColor: colors.primary,
@@ -1002,6 +1163,35 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginHorizontal: spacing.md,
     marginTop: spacing.xs,
+  },
+  settingsActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.md,
+  },
+  settingsCard: {
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+  },
+  settingsDescription: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: spacing.xs,
+  },
+  settingsLabel: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  settingsRowHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
   },
   searchInput: {
     flex: 1,

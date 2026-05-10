@@ -1,3 +1,9 @@
+export type AppSettings = {
+  forceDirectPlay: boolean;
+  videoCachingEnabled: boolean;
+  videoCacheSizeMb: number;
+};
+
 export type JellyfinSession = {
   serverUrl: string;
   accessToken: string;

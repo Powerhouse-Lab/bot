@@ -211,11 +211,22 @@ export function formatRuntime(ticks?: number): string | undefined {
   return `${hours}h ${remainingMinutes}m`;
 }
 
-export function getStreamUrl(serverUrl: string, item: JellyfinItem, accessToken: string): string {
+export function getStreamUrl(
+  serverUrl: string,
+  item: JellyfinItem,
+  accessToken: string,
+  options: { forceDirectPlay?: boolean } = {},
+): string {
+  const forceDirectPlay = options.forceDirectPlay ?? true;
   const params = new URLSearchParams({
     api_key: accessToken,
-    Static: 'true',
   });
+
+  if (forceDirectPlay) {
+    params.set('Static', 'true');
+    params.set('mediaSourceId', item.Id);
+  }
+
   const mediaRoute = item.MediaType === 'Audio' || item.Type === 'Audio' ? 'Audio' : 'Videos';
 
   return `${serverUrl}/${mediaRoute}/${encodeURIComponent(item.Id)}/stream?${params.toString()}`;
