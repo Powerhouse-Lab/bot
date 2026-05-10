@@ -7,9 +7,22 @@ A lightweight Expo React Native mobile client for Jellyfin. The app signs in to 
 - Jellyfin server URL probing through `/System/Info/Public`.
 - Username/password authentication through `/Users/AuthenticateByName`.
 - Persisted sessions with `@react-native-async-storage/async-storage`.
-- Home screen with user libraries and recently added media.
+- Home dashboard with user libraries, continue watching, and recently added media.
+- Library browsing with selectable Jellyfin collections.
+- Server-wide search across movies, shows, episodes, albums, and songs.
+- Item detail sheets with overview, runtime, progress, favorite toggling, and external playback links.
 - Pull-to-refresh and sign-out support.
 - Dark Jellyfin-inspired mobile UI.
+
+
+
+## Core client coverage
+
+This scaffold now covers the important pieces expected from a Jellyfin mobile client: authentication, persisted sessions, library browsing, search, resume/continue watching, recently added media, poster art, favorite management, item details, and opening server stream URLs in a player registered on the device.
+
+## Preview
+
+![Jellyfin Mobile Client preview](docs/preview.svg)
 
 ## Getting started
 
@@ -27,6 +40,38 @@ Then open the app in Expo Go or an emulator and enter your Jellyfin server URL p
 - `npm run ios` - open the app on iOS.
 - `npm run web` - run the web preview.
 - `npm run typecheck` - run TypeScript without emitting files.
+
+
+## Build an APK with GitHub Actions
+
+This repository includes a workflow at `.github/workflows/android-apk.yml` that can build a signed Android release APK directly in GitHub Actions without committing the generated `android/` folder.
+
+### One-time setup
+
+1. Push this repository to GitHub.
+2. Open the repository in GitHub.
+3. Go to **Actions**.
+4. If GitHub asks, enable workflows for the repository.
+
+### Run the APK build
+
+1. Open **Actions** → **Build Android APK**.
+2. Choose **Run workflow**.
+3. Wait for the workflow to finish.
+4. Open the completed workflow run.
+5. Download the `jellyfin-mobile-release-apk` artifact.
+6. Unzip the artifact and install `jellyfin-mobile-release.apk` on an Android device.
+
+The workflow also runs on pushes to `main` when app source, config, or workflow files change. The APK is signed with a CI-generated throwaway keystore, which is useful for sideloading and testing. Use a real upload/release keystore before distributing through Google Play or long-term release channels.
+
+### Local equivalent
+
+```bash
+npm install
+npm run build:android:apk
+```
+
+The local command generates a native Android project with Expo prebuild and runs Gradle's `assembleRelease` task. If you need a Play Store artifact instead of a sideloadable APK, configure EAS Build or Gradle to produce an Android App Bundle (`.aab`).
 
 ## Notes
 

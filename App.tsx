@@ -4,7 +4,10 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
+  Linking,
+  Modal,
   Platform,
+  Pressable,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -13,7 +16,20 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { authenticate, formatRuntime, getLatestItems, getLibraries, getPrimaryImageUrl, getPublicSystemInfo } from './src/api/jellyfin';
+import {
+  authenticate,
+  formatProgress,
+  formatRuntime,
+  getLatestItems,
+  getLibraries,
+  getLibraryItems,
+  getPrimaryImageUrl,
+  getPublicSystemInfo,
+  getResumeItems,
+  getStreamUrl,
+  searchItems,
+  setFavorite,
+} from './src/api/jellyfin';
 import { Button } from './src/components/Button';
 import { EmptyState } from './src/components/EmptyState';
 import { clearSession, loadSession, saveSession } from './src/storage/session';
@@ -26,8 +42,10 @@ type Loadable<T> = {
   error?: string;
 };
 
+type HomeSection = 'home' | 'library' | 'search';
+
 const initialLibraries: Loadable<JellyfinLibrary[]> = { data: [], loading: false };
-const initialLatest: Loadable<JellyfinItem[]> = { data: [], loading: false };
+const initialItems: Loadable<JellyfinItem[]> = { data: [], loading: false };
 
 export default function App() {
   const [session, setSession] = useState<JellyfinSession>();
@@ -38,8 +56,16 @@ export default function App() {
   const [loginError, setLoginError] = useState<string>();
   const [isBooting, setIsBooting] = useState(true);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [activeSection, setActiveSection] = useState<HomeSection>('home');
   const [libraries, setLibraries] = useState<Loadable<JellyfinLibrary[]>>(initialLibraries);
-  const [latestItems, setLatestItems] = useState<Loadable<JellyfinItem[]>>(initialLatest);
+  const [latestItems, setLatestItems] = useState<Loadable<JellyfinItem[]>>(initialItems);
+  const [resumeItems, setResumeItems] = useState<Loadable<JellyfinItem[]>>(initialItems);
+  const [selectedLibrary, setSelectedLibrary] = useState<JellyfinLibrary>();
+  const [libraryItems, setLibraryItems] = useState<Loadable<JellyfinItem[]>>(initialItems);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Loadable<JellyfinItem[]>>(initialItems);
+  const [selectedItem, setSelectedItem] = useState<JellyfinItem>();
+  const [detailError, setDetailError] = useState<string>();
 
   const canSubmit = useMemo(
     () => serverUrl.trim().length > 0 && username.trim().length > 0 && password.length > 0,
@@ -71,14 +97,17 @@ export default function App() {
   const refreshHome = useCallback(async (activeSession: JellyfinSession) => {
     setLibraries((current: Loadable<JellyfinLibrary[]>) => ({ ...current, loading: true, error: undefined }));
     setLatestItems((current: Loadable<JellyfinItem[]>) => ({ ...current, loading: true, error: undefined }));
+    setResumeItems((current: Loadable<JellyfinItem[]>) => ({ ...current, loading: true, error: undefined }));
 
-    const [librariesResult, latestResult] = await Promise.allSettled([
+    const [librariesResult, latestResult, resumeResult] = await Promise.allSettled([
       getLibraries(activeSession.serverUrl, activeSession.userId, activeSession.accessToken),
       getLatestItems(activeSession.serverUrl, activeSession.userId, activeSession.accessToken),
+      getResumeItems(activeSession.serverUrl, activeSession.userId, activeSession.accessToken),
     ]);
 
     if (librariesResult.status === 'fulfilled') {
       setLibraries({ data: librariesResult.value, loading: false });
+      setSelectedLibrary((current: JellyfinLibrary | undefined) => current ?? librariesResult.value[0]);
     } else {
       setLibraries({ data: [], loading: false, error: librariesResult.reason?.message ?? 'Unable to load libraries.' });
     }
@@ -88,6 +117,12 @@ export default function App() {
     } else {
       setLatestItems({ data: [], loading: false, error: latestResult.reason?.message ?? 'Unable to load latest media.' });
     }
+
+    if (resumeResult.status === 'fulfilled') {
+      setResumeItems({ data: resumeResult.value, loading: false });
+    } else {
+      setResumeItems({ data: [], loading: false, error: resumeResult.reason?.message ?? 'Unable to load continue watching.' });
+    }
   }, []);
 
   useEffect(() => {
@@ -95,6 +130,31 @@ export default function App() {
       refreshHome(session);
     }
   }, [refreshHome, session]);
+
+  useEffect(() => {
+    if (!session || !selectedLibrary) {
+      return;
+    }
+
+    let isMounted = true;
+    setLibraryItems((current: Loadable<JellyfinItem[]>) => ({ ...current, loading: true, error: undefined }));
+
+    getLibraryItems(session.serverUrl, session.userId, session.accessToken, selectedLibrary.Id)
+      .then((items) => {
+        if (isMounted) {
+          setLibraryItems({ data: items, loading: false });
+        }
+      })
+      .catch((error) => {
+        if (isMounted) {
+          setLibraryItems({ data: [], loading: false, error: error instanceof Error ? error.message : 'Unable to load library.' });
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedLibrary, session]);
 
   const handleProbeServer = useCallback(async () => {
     setLoginError(undefined);
@@ -134,8 +194,64 @@ export default function App() {
     await clearSession();
     setSession(undefined);
     setLibraries(initialLibraries);
-    setLatestItems(initialLatest);
+    setLatestItems(initialItems);
+    setResumeItems(initialItems);
+    setLibraryItems(initialItems);
+    setSelectedLibrary(undefined);
+    setSearchResults(initialItems);
+    setSelectedItem(undefined);
   }, []);
+
+  const handleSearch = useCallback(async () => {
+    if (!session || !searchQuery.trim()) {
+      return;
+    }
+
+    setSearchResults((current: Loadable<JellyfinItem[]>) => ({ ...current, loading: true, error: undefined }));
+    try {
+      const items = await searchItems(session.serverUrl, session.userId, session.accessToken, searchQuery);
+      setSearchResults({ data: items, loading: false });
+    } catch (error) {
+      setSearchResults({ data: [], loading: false, error: error instanceof Error ? error.message : 'Search failed.' });
+    }
+  }, [searchQuery, session]);
+
+  const replaceItem = useCallback((updated: JellyfinItem) => {
+    const replace = (items: JellyfinItem[]) => items.map((item) => (item.Id === updated.Id ? { ...item, ...updated } : item));
+    setLatestItems((current: Loadable<JellyfinItem[]>) => ({ ...current, data: replace(current.data) }));
+    setResumeItems((current: Loadable<JellyfinItem[]>) => ({ ...current, data: replace(current.data) }));
+    setLibraryItems((current: Loadable<JellyfinItem[]>) => ({ ...current, data: replace(current.data) }));
+    setSearchResults((current: Loadable<JellyfinItem[]>) => ({ ...current, data: replace(current.data) }));
+    setSelectedItem((current: JellyfinItem | undefined) => (current?.Id === updated.Id ? { ...current, ...updated } : current));
+  }, []);
+
+  const handleToggleFavorite = useCallback(async (item: JellyfinItem) => {
+    if (!session) {
+      return;
+    }
+
+    setDetailError(undefined);
+    const nextFavorite = !item.UserData?.IsFavorite;
+    try {
+      const userData = await setFavorite(session.serverUrl, session.userId, session.accessToken, item.Id, nextFavorite);
+      replaceItem({ ...item, UserData: userData });
+    } catch (error) {
+      setDetailError(error instanceof Error ? error.message : 'Unable to update favorite.');
+    }
+  }, [replaceItem, session]);
+
+  const handlePlay = useCallback(async (item: JellyfinItem) => {
+    if (!session) {
+      return;
+    }
+
+    setDetailError(undefined);
+    try {
+      await Linking.openURL(getStreamUrl(session.serverUrl, item, session.accessToken));
+    } catch (error) {
+      setDetailError(error instanceof Error ? error.message : 'Unable to open this item for playback.');
+    }
+  }, [session]);
 
   if (isBooting) {
     return (
@@ -211,7 +327,7 @@ export default function App() {
     );
   }
 
-  const isRefreshing = libraries.loading || latestItems.loading;
+  const isRefreshing = libraries.loading || latestItems.loading || resumeItems.loading;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -228,54 +344,358 @@ export default function App() {
               <Button label="Sign out" onPress={handleSignOut} variant="secondary" />
             </View>
 
-            <Text style={styles.sectionTitle}>Libraries</Text>
-            {libraries.error ? <Text style={styles.errorText}>{libraries.error}</Text> : undefined}
-            {libraries.data.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.libraryScroller}>
-                {libraries.data.map((library: JellyfinLibrary) => (
-                  <View key={library.Id} style={styles.libraryPill}>
-                    <Text style={styles.libraryName}>{library.Name}</Text>
-                    <Text style={styles.libraryType}>{library.CollectionType ?? library.Type ?? 'Library'}</Text>
-                  </View>
-                ))}
-              </ScrollView>
-            ) : (
-              <EmptyState title="No libraries yet" message="Your Jellyfin libraries will appear here after the app can reach your server." />
-            )}
+            <View style={styles.tabRow}>
+              <Segment label="Home" selected={activeSection === 'home'} onPress={() => setActiveSection('home')} />
+              <Segment label="Library" selected={activeSection === 'library'} onPress={() => setActiveSection('library')} />
+              <Segment label="Search" selected={activeSection === 'search'} onPress={() => setActiveSection('search')} />
+            </View>
 
-            <Text style={styles.sectionTitle}>Recently added</Text>
-            {latestItems.error ? <Text style={styles.errorText}>{latestItems.error}</Text> : undefined}
+            {activeSection === 'home' ? (
+              <HomeContent
+                libraries={libraries}
+                latestItems={latestItems}
+                resumeItems={resumeItems}
+                onOpenItem={setSelectedItem}
+                onSelectLibrary={(library) => {
+                  setSelectedLibrary(library);
+                  setActiveSection('library');
+                }}
+                serverUrl={session.serverUrl}
+                token={session.accessToken}
+              />
+            ) : undefined}
+
+            {activeSection === 'library' ? (
+              <LibraryContent
+                libraries={libraries.data}
+                libraryItems={libraryItems}
+                onOpenItem={setSelectedItem}
+                onSelectLibrary={setSelectedLibrary}
+                selectedLibrary={selectedLibrary}
+                serverUrl={session.serverUrl}
+                token={session.accessToken}
+              />
+            ) : undefined}
+
+            {activeSection === 'search' ? (
+              <SearchContent
+                onOpenItem={setSelectedItem}
+                onSearch={handleSearch}
+                searchQuery={searchQuery}
+                searchResults={searchResults}
+                serverUrl={session.serverUrl}
+                setSearchQuery={setSearchQuery}
+                token={session.accessToken}
+              />
+            ) : undefined}
           </View>
         }
         contentContainerStyle={styles.homeContent}
-        data={latestItems.data}
+        data={[] as JellyfinItem[]}
         keyExtractor={(item: JellyfinItem) => item.Id}
-        numColumns={2}
         refreshControl={<RefreshControl refreshing={isRefreshing} tintColor={colors.primary} onRefresh={() => refreshHome(session)} />}
-        renderItem={({ item }: { item: JellyfinItem }) => <MediaCard accessToken={session.accessToken} item={item} serverUrl={session.serverUrl} />}
-        ListEmptyComponent={
-          latestItems.loading ? undefined : <EmptyState title="Nothing recent" message="Recently added movies, episodes, and songs will show up here." />
-        }
+        renderItem={() => null}
+      />
+
+      <ItemDetailsModal
+        detailError={detailError}
+        item={selectedItem}
+        onClose={() => {
+          setSelectedItem(undefined);
+          setDetailError(undefined);
+        }}
+        onPlay={handlePlay}
+        onToggleFavorite={handleToggleFavorite}
+        serverUrl={session.serverUrl}
+        token={session.accessToken}
       />
     </SafeAreaView>
   );
 }
 
-function MediaCard({ accessToken, item, serverUrl }: { accessToken: string; item: JellyfinItem; serverUrl: string }) {
-  const runtime = formatRuntime(item.RunTimeTicks);
-  const imageUrl = getPrimaryImageUrl(serverUrl, item, accessToken);
+function HomeContent({
+  libraries,
+  latestItems,
+  onOpenItem,
+  onSelectLibrary,
+  resumeItems,
+  serverUrl,
+  token,
+}: {
+  libraries: Loadable<JellyfinLibrary[]>;
+  latestItems: Loadable<JellyfinItem[]>;
+  onOpenItem: (item: JellyfinItem) => void;
+  onSelectLibrary: (library: JellyfinLibrary) => void;
+  resumeItems: Loadable<JellyfinItem[]>;
+  serverUrl: string;
+  token: string;
+}) {
+  return (
+    <View>
+      <Text style={styles.sectionTitle}>Libraries</Text>
+      {libraries.error ? <Text style={styles.errorText}>{libraries.error}</Text> : undefined}
+      {libraries.data.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.libraryScroller}>
+          {libraries.data.map((library: JellyfinLibrary) => (
+            <Pressable key={library.Id} onPress={() => onSelectLibrary(library)} style={styles.libraryPill}>
+              <Text style={styles.libraryName}>{library.Name}</Text>
+              <Text style={styles.libraryType}>{library.CollectionType ?? library.Type ?? 'Library'}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : (
+        <EmptyState title="No libraries yet" message="Your Jellyfin libraries will appear here after the app can reach your server." />
+      )}
+
+      <MediaRail error={resumeItems.error} items={resumeItems.data} onOpenItem={onOpenItem} serverUrl={serverUrl} title="Continue watching" token={token} />
+      <MediaGrid error={latestItems.error} items={latestItems.data} onOpenItem={onOpenItem} serverUrl={serverUrl} title="Recently added" token={token} />
+    </View>
+  );
+}
+
+function LibraryContent({
+  libraries,
+  libraryItems,
+  onOpenItem,
+  onSelectLibrary,
+  selectedLibrary,
+  serverUrl,
+  token,
+}: {
+  libraries: JellyfinLibrary[];
+  libraryItems: Loadable<JellyfinItem[]>;
+  onOpenItem: (item: JellyfinItem) => void;
+  onSelectLibrary: (library: JellyfinLibrary) => void;
+  selectedLibrary?: JellyfinLibrary;
+  serverUrl: string;
+  token: string;
+}) {
+  return (
+    <View>
+      <Text style={styles.sectionTitle}>Browse library</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.libraryScroller}>
+        {libraries.map((library) => (
+          <Pressable
+            key={library.Id}
+            onPress={() => onSelectLibrary(library)}
+            style={[styles.libraryPill, selectedLibrary?.Id === library.Id ? styles.libraryPillActive : undefined]}
+          >
+            <Text style={styles.libraryName}>{library.Name}</Text>
+            <Text style={styles.libraryType}>{library.CollectionType ?? library.Type ?? 'Library'}</Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+      <MediaGrid
+        emptyMessage="Pick a library or add media to Jellyfin to browse it here."
+        error={libraryItems.error}
+        items={libraryItems.data}
+        onOpenItem={onOpenItem}
+        serverUrl={serverUrl}
+        title={selectedLibrary?.Name ?? 'Library items'}
+        token={token}
+      />
+    </View>
+  );
+}
+
+function SearchContent({
+  onOpenItem,
+  onSearch,
+  searchQuery,
+  searchResults,
+  serverUrl,
+  setSearchQuery,
+  token,
+}: {
+  onOpenItem: (item: JellyfinItem) => void;
+  onSearch: () => void;
+  searchQuery: string;
+  searchResults: Loadable<JellyfinItem[]>;
+  serverUrl: string;
+  setSearchQuery: (query: string) => void;
+  token: string;
+}) {
+  return (
+    <View>
+      <Text style={styles.sectionTitle}>Search your server</Text>
+      <View style={styles.searchRow}>
+        <TextInput
+          autoCapitalize="none"
+          autoCorrect={false}
+          onChangeText={setSearchQuery}
+          onSubmitEditing={onSearch}
+          placeholder="Movies, series, episodes, music…"
+          placeholderTextColor={colors.muted}
+          returnKeyType="search"
+          style={[styles.input, styles.searchInput]}
+          value={searchQuery}
+        />
+        <Button disabled={!searchQuery.trim()} label="Search" loading={searchResults.loading} onPress={onSearch} />
+      </View>
+      <MediaGrid
+        emptyMessage="Search results from movies, shows, episodes, albums, and songs will appear here."
+        error={searchResults.error}
+        items={searchResults.data}
+        onOpenItem={onOpenItem}
+        serverUrl={serverUrl}
+        title="Results"
+        token={token}
+      />
+    </View>
+  );
+}
+
+function Segment({ label, onPress, selected }: { label: string; onPress: () => void; selected: boolean }) {
+  return (
+    <Pressable onPress={onPress} style={[styles.segment, selected ? styles.segmentActive : undefined]}>
+      <Text style={[styles.segmentText, selected ? styles.segmentTextActive : undefined]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function MediaRail({
+  error,
+  items,
+  onOpenItem,
+  serverUrl,
+  title,
+  token,
+}: {
+  error?: string;
+  items: JellyfinItem[];
+  onOpenItem: (item: JellyfinItem) => void;
+  serverUrl: string;
+  title: string;
+  token: string;
+}) {
+  if (!items.length && !error) {
+    return undefined;
+  }
 
   return (
-    <View style={styles.mediaCard}>
+    <View>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {error ? <Text style={styles.errorText}>{error}</Text> : undefined}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.libraryScroller}>
+        {items.map((item) => (
+          <View key={item.Id}>
+            <MediaCard compact item={item} onPress={() => onOpenItem(item)} serverUrl={serverUrl} token={token} />
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+function MediaGrid({
+  emptyMessage = 'Media from your Jellyfin server will show up here.',
+  error,
+  items,
+  onOpenItem,
+  serverUrl,
+  title,
+  token,
+}: {
+  emptyMessage?: string;
+  error?: string;
+  items: JellyfinItem[];
+  onOpenItem: (item: JellyfinItem) => void;
+  serverUrl: string;
+  title: string;
+  token: string;
+}) {
+  return (
+    <View>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {error ? <Text style={styles.errorText}>{error}</Text> : undefined}
+      {items.length > 0 ? (
+        <View style={styles.grid}>
+          {items.map((item) => (
+            <View key={item.Id} style={styles.mediaCardWrapper}>
+              <MediaCard item={item} onPress={() => onOpenItem(item)} serverUrl={serverUrl} token={token} />
+            </View>
+          ))}
+        </View>
+      ) : (
+        <EmptyState title="Nothing to show" message={emptyMessage} />
+      )}
+    </View>
+  );
+}
+
+function MediaCard({ compact = false, item, onPress, serverUrl, token }: { compact?: boolean; item: JellyfinItem; onPress: () => void; serverUrl: string; token: string }) {
+  const runtime = formatRuntime(item.RunTimeTicks);
+  const progress = formatProgress(item);
+  const imageUrl = getPrimaryImageUrl(serverUrl, item, token);
+
+  return (
+    <Pressable onPress={onPress} style={[styles.mediaCard, compact ? styles.mediaCardCompact : undefined]}>
       <View style={styles.poster}>
         {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.posterImage} /> : <Text style={styles.posterFallback}>JF</Text>}
+        {item.UserData?.IsFavorite ? <Text style={styles.favoriteBadge}>★</Text> : undefined}
       </View>
       <Text numberOfLines={2} style={styles.mediaTitle}>{item.Name}</Text>
       <Text numberOfLines={1} style={styles.mediaMeta}>
-        {[item.Type, item.ProductionYear, runtime].filter(Boolean).join(' • ')}
+        {[item.Type ?? item.MediaType, item.ProductionYear, runtime].filter(Boolean).join(' • ')}
       </Text>
-      {item.Overview ? <Text numberOfLines={3} style={styles.overview}>{item.Overview}</Text> : undefined}
-    </View>
+      {progress ? <Text numberOfLines={1} style={styles.progressText}>{progress}</Text> : undefined}
+      {!compact && item.Overview ? <Text numberOfLines={3} style={styles.overview}>{item.Overview}</Text> : undefined}
+    </Pressable>
+  );
+}
+
+function ItemDetailsModal({
+  detailError,
+  item,
+  onClose,
+  onPlay,
+  onToggleFavorite,
+  serverUrl,
+  token,
+}: {
+  detailError?: string;
+  item?: JellyfinItem;
+  onClose: () => void;
+  onPlay: (item: JellyfinItem) => void;
+  onToggleFavorite: (item: JellyfinItem) => void;
+  serverUrl: string;
+  token: string;
+}) {
+  if (!item) {
+    return undefined;
+  }
+
+  const imageUrl = getPrimaryImageUrl(serverUrl, item, token, 720);
+  const runtime = formatRuntime(item.RunTimeTicks);
+  const progress = formatProgress(item);
+
+  return (
+    <Modal animationType="slide" onRequestClose={onClose} transparent visible={Boolean(item)}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <View style={styles.detailPoster}>
+              {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.posterImage} /> : <Text style={styles.posterFallback}>JF</Text>}
+            </View>
+            <Text style={styles.detailTitle}>{item.Name}</Text>
+            <Text style={styles.mediaMeta}>
+              {[item.SeriesName, item.Type ?? item.MediaType, item.ProductionYear, runtime, progress].filter(Boolean).join(' • ')}
+            </Text>
+            {item.Overview ? <Text style={styles.detailOverview}>{item.Overview}</Text> : undefined}
+            {detailError ? <Text style={styles.errorText}>{detailError}</Text> : undefined}
+            <View style={styles.actionStack}>
+              <Button label="Play externally" onPress={() => onPlay(item)} />
+              <Button
+                label={item.UserData?.IsFavorite ? 'Remove favorite' : 'Add favorite'}
+                onPress={() => onToggleFavorite(item)}
+                variant="secondary"
+              />
+              <Button label="Close" onPress={onClose} variant="secondary" />
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -302,14 +722,52 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     flex: 1,
   },
+  detailOverview: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 23,
+    marginTop: spacing.md,
+  },
+  detailPoster: {
+    alignItems: 'center',
+    aspectRatio: 0.72,
+    backgroundColor: colors.panelRaised,
+    borderRadius: 18,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    width: '100%',
+  },
+  detailTitle: {
+    color: colors.text,
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: -0.6,
+    marginTop: spacing.lg,
+  },
   errorText: {
     color: colors.danger,
     fontSize: 14,
     lineHeight: 20,
     marginTop: spacing.md,
   },
+  favoriteBadge: {
+    backgroundColor: colors.primary,
+    borderBottomLeftRadius: 10,
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
   flex: {
     flex: 1,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
   },
   headerRow: {
     alignItems: 'center',
@@ -361,6 +819,9 @@ const styles = StyleSheet.create({
     minWidth: 150,
     padding: spacing.md,
   },
+  libraryPillActive: {
+    borderColor: colors.primary,
+  },
   libraryScroller: {
     marginBottom: spacing.md,
   },
@@ -380,10 +841,16 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 20,
     borderWidth: 1,
-    flex: 1,
-    margin: spacing.sm,
     overflow: 'hidden',
     paddingBottom: spacing.md,
+    width: '100%',
+  },
+  mediaCardCompact: {
+    width: 150,
+  },
+  mediaCardWrapper: {
+    margin: spacing.sm,
+    width: '45%',
   },
   mediaMeta: {
     color: colors.muted,
@@ -398,6 +865,20 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginHorizontal: spacing.md,
     marginTop: spacing.md,
+  },
+  modalBackdrop: {
+    backgroundColor: 'rgba(0,0,0,0.58)',
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    maxHeight: '88%',
+    padding: spacing.lg,
   },
   overview: {
     color: colors.muted,
@@ -422,12 +903,49 @@ const styles = StyleSheet.create({
     height: '100%',
     width: '100%',
   },
+  progressText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '800',
+    marginHorizontal: spacing.md,
+    marginTop: spacing.xs,
+  },
+  searchInput: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  searchRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
   sectionTitle: {
     color: colors.text,
     fontSize: 22,
     fontWeight: '900',
     marginBottom: spacing.md,
     marginTop: spacing.xl,
+  },
+  segment: {
+    alignItems: 'center',
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    flex: 1,
+    paddingVertical: spacing.sm,
+  },
+  segmentActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  segmentText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  segmentTextActive: {
+    color: colors.text,
   },
   subtitle: {
     color: colors.muted,
@@ -440,6 +958,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginTop: spacing.sm,
+  },
+  tabRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.lg,
   },
   title: {
     color: colors.text,

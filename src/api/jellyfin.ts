@@ -3,6 +3,7 @@ import {
   ItemListResponse,
   JellyfinItem,
   JellyfinLibrary,
+  JellyfinUserData,
   PublicSystemInfo,
 } from '../types';
 
@@ -96,7 +97,7 @@ export async function getLibraries(serverUrl: string, userId: string, token: str
 export async function getLatestItems(serverUrl: string, userId: string, token: string): Promise<JellyfinItem[]> {
   const params = new URLSearchParams({
     Limit: '30',
-    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks',
+    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData',
     EnableImageTypes: 'Primary,Backdrop,Thumb',
   });
 
@@ -104,6 +105,77 @@ export async function getLatestItems(serverUrl: string, userId: string, token: s
     serverUrl,
     `/Users/${encodeURIComponent(userId)}/Items/Latest?${params.toString()}`,
     undefined,
+    token,
+  );
+}
+
+export async function getResumeItems(serverUrl: string, userId: string, token: string): Promise<JellyfinItem[]> {
+  const params = new URLSearchParams({
+    Limit: '20',
+    MediaTypes: 'Video',
+    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData',
+    EnableImageTypes: 'Primary,Backdrop,Thumb',
+  });
+
+  const response = await request<ItemListResponse<JellyfinItem>>(
+    serverUrl,
+    `/Users/${encodeURIComponent(userId)}/Items/Resume?${params.toString()}`,
+    undefined,
+    token,
+  );
+  return response.Items;
+}
+
+export async function getLibraryItems(serverUrl: string, userId: string, token: string, parentId: string): Promise<JellyfinItem[]> {
+  const params = new URLSearchParams({
+    ParentId: parentId,
+    Recursive: 'true',
+    SortBy: 'SortName',
+    SortOrder: 'Ascending',
+    Limit: '60',
+    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData',
+    EnableImageTypes: 'Primary,Backdrop,Thumb',
+  });
+
+  const response = await request<ItemListResponse<JellyfinItem>>(
+    serverUrl,
+    `/Users/${encodeURIComponent(userId)}/Items?${params.toString()}`,
+    undefined,
+    token,
+  );
+  return response.Items;
+}
+
+export async function searchItems(serverUrl: string, userId: string, token: string, query: string): Promise<JellyfinItem[]> {
+  const params = new URLSearchParams({
+    SearchTerm: query.trim(),
+    Recursive: 'true',
+    IncludeItemTypes: 'Movie,Series,Episode,Audio,MusicAlbum',
+    Limit: '40',
+    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData',
+    EnableImageTypes: 'Primary,Backdrop,Thumb',
+  });
+
+  const response = await request<ItemListResponse<JellyfinItem>>(
+    serverUrl,
+    `/Users/${encodeURIComponent(userId)}/Items?${params.toString()}`,
+    undefined,
+    token,
+  );
+  return response.Items;
+}
+
+export async function setFavorite(
+  serverUrl: string,
+  userId: string,
+  token: string,
+  itemId: string,
+  favorite: boolean,
+): Promise<JellyfinUserData> {
+  return request<JellyfinUserData>(
+    serverUrl,
+    `/Users/${encodeURIComponent(userId)}/FavoriteItems/${encodeURIComponent(itemId)}`,
+    { method: favorite ? 'POST' : 'DELETE' },
     token,
   );
 }
@@ -137,4 +209,24 @@ export function formatRuntime(ticks?: number): string | undefined {
   }
 
   return `${hours}h ${remainingMinutes}m`;
+}
+
+export function getStreamUrl(serverUrl: string, item: JellyfinItem, accessToken: string): string {
+  const params = new URLSearchParams({
+    api_key: accessToken,
+    Static: 'true',
+  });
+  const mediaRoute = item.MediaType === 'Audio' || item.Type === 'Audio' ? 'Audio' : 'Videos';
+
+  return `${serverUrl}/${mediaRoute}/${encodeURIComponent(item.Id)}/stream?${params.toString()}`;
+}
+
+export function formatProgress(item: JellyfinItem): string | undefined {
+  const position = item.UserData?.PlaybackPositionTicks;
+  if (!position || !item.RunTimeTicks) {
+    return undefined;
+  }
+
+  const percent = Math.min(99, Math.max(1, Math.round((position / item.RunTimeTicks) * 100)));
+  return `${percent}% watched`;
 }
