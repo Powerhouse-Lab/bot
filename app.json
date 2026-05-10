@@ -28,6 +28,7 @@
           "supportsPictureInPicture": true
         }
       ]
-    ]
+    ],
+    "newArchEnabled": false
   }
 }

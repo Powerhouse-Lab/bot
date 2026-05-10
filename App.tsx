@@ -1,6 +1,7 @@
 import { useEvent } from 'expo';
 import { StatusBar } from 'expo-status-bar';
-import { clearVideoCacheAsync, getCurrentVideoCacheSize, setVideoCacheSizeAsync, useVideoPlayer, VideoView } from 'expo-video';
+import * as ExpoVideo from 'expo-video';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
@@ -40,6 +41,48 @@ import { clearSession, loadSession, saveSession } from './src/storage/session';
 import { defaultSettings, loadSettings, saveSettings } from './src/storage/settings';
 import { colors, spacing } from './src/theme';
 import { AppSettings, JellyfinItem, JellyfinLibrary, JellyfinSession, PublicSystemInfo } from './src/types';
+
+
+type ExpoVideoCacheApi = {
+  clearVideoCacheAsync?: () => Promise<void>;
+  getCurrentVideoCacheSize?: () => Promise<number>;
+  setVideoCacheSizeAsync?: (sizeBytes: number) => Promise<void>;
+};
+
+const videoCacheApi = ExpoVideo as ExpoVideoCacheApi;
+
+function hasVideoCacheApi(): boolean {
+  return (
+    typeof videoCacheApi.clearVideoCacheAsync === 'function'
+    && typeof videoCacheApi.getCurrentVideoCacheSize === 'function'
+    && typeof videoCacheApi.setVideoCacheSizeAsync === 'function'
+  );
+}
+
+async function setPreferredVideoCacheSize(sizeBytes: number): Promise<void> {
+  if (typeof videoCacheApi.setVideoCacheSizeAsync !== 'function') {
+    return;
+  }
+
+  await videoCacheApi.setVideoCacheSizeAsync(sizeBytes);
+}
+
+async function getVideoCacheUsage(): Promise<number | undefined> {
+  if (typeof videoCacheApi.getCurrentVideoCacheSize !== 'function') {
+    return undefined;
+  }
+
+  return videoCacheApi.getCurrentVideoCacheSize();
+}
+
+async function clearVideoCache(): Promise<boolean> {
+  if (typeof videoCacheApi.clearVideoCacheAsync !== 'function') {
+    return false;
+  }
+
+  await videoCacheApi.clearVideoCacheAsync();
+  return true;
+}
 
 type Loadable<T> = {
   data: T;
@@ -115,7 +158,7 @@ export default function App() {
       return;
     }
 
-    setVideoCacheSizeAsync(settings.videoCachingEnabled ? settings.videoCacheSizeMb * 1024 * 1024 : 0).catch(() => {
+    setPreferredVideoCacheSize(settings.videoCachingEnabled ? settings.videoCacheSizeMb * 1024 * 1024 : 0).catch(() => {
       // Cache sizing depends on native video support and can fail before the player module is ready.
     });
   }, [playbackItem, settings.videoCacheSizeMb, settings.videoCachingEnabled]);
@@ -621,14 +664,19 @@ function SettingsContent({
   }, [onChangeSettings, settings]);
 
   const refreshCacheSize = useCallback(() => {
-    getCurrentVideoCacheSize()
-      .then((bytes: number) => setCacheSizeText(formatBytes(bytes)))
+    if (!hasVideoCacheApi()) {
+      setCacheSizeText('Unavailable in this build');
+      return;
+    }
+
+    getVideoCacheUsage()
+      .then((bytes) => setCacheSizeText(bytes === undefined ? 'Unavailable in this build' : formatBytes(bytes)))
       .catch(() => setCacheSizeText('Unavailable'));
   }, []);
 
   const clearCache = useCallback(() => {
-    clearVideoCacheAsync()
-      .then(() => setCacheSizeText('0 MB'))
+    clearVideoCache()
+      .then((cleared) => setCacheSizeText(cleared ? '0 MB' : 'Unavailable in this build'))
       .catch(() => setCacheSizeText('Close the player and try again'));
   }, []);
 

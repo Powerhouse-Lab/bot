@@ -45,7 +45,7 @@ Then open the app in Expo Go or an emulator and enter your Jellyfin server URL p
 
 ## Playback and caching
 
-The in-app player requests Jellyfin direct streams by default (`Static=true`) to avoid server transcoding. It only shows playback actions for real audio/video items, uses the Jellyfin media source ID and source container extension when available, and reports embedded-player errors instead of trying to play library folders or series. If a file cannot be decoded by the device, disable **Force direct video** in Settings or use **Open in external player** with an installed player such as mpv-android.
+The in-app player requests Jellyfin direct streams by default (`Static=true`) to avoid server transcoding. It only shows playback actions for real audio/video items, uses the Jellyfin media source ID and source container extension when available, and reports embedded-player errors instead of trying to play library folders or series. Dependencies are pinned to Expo SDK 53-compatible React versions, the generated native app disables React Native's new architecture to avoid `expo-video` Fabric shared-object crashes on affected Android builds, and Settings gracefully disables cache controls when the installed `expo-video` build does not expose cache APIs. If a file cannot be decoded by the device, disable **Force direct video** in Settings or use **Open in external player** with an installed player such as mpv-android.
 
 Video caching can be enabled from Settings. The app uses `expo-video` source caching for direct streams, exposes 512 MB / 1 GB / 2 GB preferred cache limits, shows current cache usage, and can clear the cache when no player is active.
 
@@ -90,6 +90,8 @@ npm run build:android:apk
 ```
 
 The local command generates a native Android project with Expo prebuild and runs Gradle's `assembleRelease` task. If you need a Play Store artifact instead of a sideloadable APK, configure EAS Build or Gradle to produce an Android App Bundle (`.aab`).
+
+If you previously built an APK from the earlier dependency ranges, delete `node_modules` and reinstall before rebuilding so React stays pinned to `19.0.0` and matches React Native's renderer. The GitHub workflow starts from a clean checkout, so it automatically uses the pinned versions.
 
 ## Notes
 
