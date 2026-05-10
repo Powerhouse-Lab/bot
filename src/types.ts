@@ -39,6 +39,16 @@ export type JellyfinUserData = {
   PlayCount?: number;
 };
 
+export type JellyfinMediaSource = {
+  Id?: string;
+  Container?: string;
+  Name?: string;
+  Path?: string;
+  SupportsDirectPlay?: boolean;
+  SupportsDirectStream?: boolean;
+  SupportsTranscoding?: boolean;
+};
+
 export type JellyfinItem = {
   Id: string;
   Name: string;
@@ -53,6 +63,7 @@ export type JellyfinItem = {
   IndexNumber?: number;
   ImageTags?: Record<string, string>;
   UserData?: JellyfinUserData;
+  MediaSources?: JellyfinMediaSource[];
 };
 
 export type ItemListResponse<T> = {

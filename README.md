@@ -45,7 +45,7 @@ Then open the app in Expo Go or an emulator and enter your Jellyfin server URL p
 
 ## Playback and caching
 
-The in-app player requests Jellyfin direct streams by default (`Static=true`) to avoid server transcoding. If a file cannot be decoded by the device, disable **Force direct video** in Settings or use **Open in external player** with an installed player such as mpv-android.
+The in-app player requests Jellyfin direct streams by default (`Static=true`) to avoid server transcoding. It only shows playback actions for real audio/video items, uses the Jellyfin media source ID and source container extension when available, and reports embedded-player errors instead of trying to play library folders or series. If a file cannot be decoded by the device, disable **Force direct video** in Settings or use **Open in external player** with an installed player such as mpv-android.
 
 Video caching can be enabled from Settings. The app uses `expo-video` source caching for direct streams, exposes 512 MB / 1 GB / 2 GB preferred cache limits, shows current cache usage, and can clear the cache when no player is active.
 
@@ -65,9 +65,20 @@ This repository includes a workflow at `.github/workflows/android-apk.yml` that 
 1. Open **Actions** → **Build Android APK**.
 2. Choose **Run workflow**.
 3. Wait for the workflow to finish.
-4. Open the completed workflow run.
-5. Download the `jellyfin-mobile-release-apk` artifact.
-6. Unzip the artifact and install `jellyfin-mobile-release.apk` on an Android device.
+4. Open the repository **Releases** page.
+5. Download `jellyfin-mobile-release.apk` directly from the latest `Jellyfin Mobile APK ...` release.
+
+GitHub Actions artifacts are always downloaded as `.zip` archives in the GitHub UI, even when they contain a single APK. To avoid zip downloads, this workflow does not upload an Actions artifact; it publishes the built file as a raw `.apk` release asset on every successful manual run or `main` push.
+
+### Optional Telegram delivery
+
+To have the workflow send the APK to Telegram after it is built, create these repository secrets in **Settings** → **Secrets and variables** → **Actions**:
+
+- `TELEGRAM_BOT_TOKEN`: the token from BotFather for your Telegram bot.
+- `TELEGRAM_CHAT_ID`: the user, group, or channel chat ID that should receive the APK.
+- `TELEGRAM_MESSAGE_THREAD_ID` (optional): the topic/thread ID for Telegram forum groups.
+
+When the required Telegram secrets are set, the workflow uploads `jellyfin-mobile-release.apk` to Telegram with the Bot API `sendDocument` endpoint after publishing the GitHub Release. If either required secret is missing, the Telegram step is skipped and the APK is still available from Releases.
 
 The workflow also runs on pushes to `main` when app source, config, or workflow files change. It intentionally uses `npm install` without setup-node npm caching and avoids setup-java Gradle caching so it can run before a `package-lock.json` or generated `android/` Gradle files exist. The APK is signed with a CI-generated throwaway keystore placed under `android/app` and passed to Gradle by absolute path, which is useful for sideloading and testing. Use a real upload/release keystore before distributing through Google Play or long-term release channels.
 

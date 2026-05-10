@@ -97,7 +97,7 @@ export async function getLibraries(serverUrl: string, userId: string, token: str
 export async function getLatestItems(serverUrl: string, userId: string, token: string): Promise<JellyfinItem[]> {
   const params = new URLSearchParams({
     Limit: '30',
-    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData',
+    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData,MediaSources',
     EnableImageTypes: 'Primary,Backdrop,Thumb',
   });
 
@@ -113,7 +113,7 @@ export async function getResumeItems(serverUrl: string, userId: string, token: s
   const params = new URLSearchParams({
     Limit: '20',
     MediaTypes: 'Video',
-    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData',
+    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData,MediaSources',
     EnableImageTypes: 'Primary,Backdrop,Thumb',
   });
 
@@ -133,7 +133,7 @@ export async function getLibraryItems(serverUrl: string, userId: string, token: 
     SortBy: 'SortName',
     SortOrder: 'Ascending',
     Limit: '60',
-    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData',
+    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData,MediaSources',
     EnableImageTypes: 'Primary,Backdrop,Thumb',
   });
 
@@ -152,7 +152,7 @@ export async function searchItems(serverUrl: string, userId: string, token: stri
     Recursive: 'true',
     IncludeItemTypes: 'Movie,Series,Episode,Audio,MusicAlbum',
     Limit: '40',
-    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData',
+    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData,MediaSources',
     EnableImageTypes: 'Primary,Backdrop,Thumb',
   });
 
@@ -211,6 +211,31 @@ export function formatRuntime(ticks?: number): string | undefined {
   return `${hours}h ${remainingMinutes}m`;
 }
 
+function getPreferredMediaSource(item: JellyfinItem) {
+  return item.MediaSources?.find((source) => source.SupportsDirectPlay) ?? item.MediaSources?.[0];
+}
+
+function getStreamExtension(container?: string): string {
+  const preferredContainer = container?.split(',').map((value) => value.trim()).filter(Boolean)[0];
+  if (!preferredContainer) {
+    return '';
+  }
+
+  const normalizedContainer = preferredContainer.toLowerCase();
+  const extensionMap: Record<string, string> = {
+    matroska: 'mkv',
+    mov: 'mp4',
+    mpegts: 'ts',
+    quicktime: 'mp4',
+  };
+  const extension = extensionMap[normalizedContainer] ?? normalizedContainer;
+  return `.${encodeURIComponent(extension)}`;
+}
+
+export function isPlayableMedia(item: JellyfinItem): boolean {
+  return item.MediaType === 'Video' || item.MediaType === 'Audio' || item.Type === 'Audio' || item.Type === 'Video';
+}
+
 export function getStreamUrl(
   serverUrl: string,
   item: JellyfinItem,
@@ -218,18 +243,21 @@ export function getStreamUrl(
   options: { forceDirectPlay?: boolean } = {},
 ): string {
   const forceDirectPlay = options.forceDirectPlay ?? true;
+  const mediaSource = getPreferredMediaSource(item);
   const params = new URLSearchParams({
     api_key: accessToken,
   });
 
+  let streamExtension = '';
   if (forceDirectPlay) {
     params.set('Static', 'true');
-    params.set('mediaSourceId', item.Id);
+    params.set('MediaSourceId', mediaSource?.Id ?? item.Id);
+    streamExtension = getStreamExtension(mediaSource?.Container);
   }
 
   const mediaRoute = item.MediaType === 'Audio' || item.Type === 'Audio' ? 'Audio' : 'Videos';
 
-  return `${serverUrl}/${mediaRoute}/${encodeURIComponent(item.Id)}/stream?${params.toString()}`;
+  return `${serverUrl}/${mediaRoute}/${encodeURIComponent(item.Id)}/stream${streamExtension}?${params.toString()}`;
 }
 
 export function formatProgress(item: JellyfinItem): string | undefined {

@@ -1,3 +1,4 @@
+import { useEvent } from 'expo';
 import { StatusBar } from 'expo-status-bar';
 import { clearVideoCacheAsync, getCurrentVideoCacheSize, setVideoCacheSizeAsync, useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -29,6 +30,7 @@ import {
   getPublicSystemInfo,
   getResumeItems,
   getStreamUrl,
+  isPlayableMedia,
   searchItems,
   setFavorite,
 } from './src/api/jellyfin';
@@ -267,6 +269,11 @@ export default function App() {
 
   const handlePlayInApp = useCallback((item: JellyfinItem) => {
     setDetailError(undefined);
+    if (!isPlayableMedia(item)) {
+      setDetailError('This item is not a playable audio or video file. Open an episode, movie, or track instead.');
+      return;
+    }
+
     setPlaybackItem(item);
   }, []);
 
@@ -276,6 +283,11 @@ export default function App() {
     }
 
     setDetailError(undefined);
+    if (!isPlayableMedia(item)) {
+      setDetailError('This item is not a playable audio or video file. Open an episode, movie, or track instead.');
+      return;
+    }
+
     try {
       await Linking.openURL(getStreamUrl(session.serverUrl, item, session.accessToken, { forceDirectPlay: settings.forceDirectPlay }));
     } catch (error) {
@@ -823,6 +835,7 @@ function ItemDetailsModal({
   const imageUrl = getPrimaryImageUrl(serverUrl, item, token, 720);
   const runtime = formatRuntime(item.RunTimeTicks);
   const progress = formatProgress(item);
+  const playable = isPlayableMedia(item);
 
   return (
     <Modal animationType="slide" onRequestClose={onClose} transparent visible={Boolean(item)}>
@@ -839,8 +852,14 @@ function ItemDetailsModal({
             {item.Overview ? <Text style={styles.detailOverview}>{item.Overview}</Text> : undefined}
             {detailError ? <Text style={styles.errorText}>{detailError}</Text> : undefined}
             <View style={styles.actionStack}>
-              <Button label="Play in app" onPress={() => onPlayInApp(item)} />
-              <Button label="Open in external player" onPress={() => onPlayExternal(item)} variant="secondary" />
+              {playable ? (
+                <>
+                  <Button label="Play in app" onPress={() => onPlayInApp(item)} />
+                  <Button label="Open in external player" onPress={() => onPlayExternal(item)} variant="secondary" />
+                </>
+              ) : (
+                <Text style={styles.mutedText}>Open a movie, episode, or track to start playback.</Text>
+              )}
               <Button
                 label={item.UserData?.IsFavorite ? 'Remove favorite' : 'Add favorite'}
                 onPress={() => onToggleFavorite(item)}
@@ -870,15 +889,26 @@ function InAppPlayerModal({
   token: string;
 }) {
   const source = useMemo(() => ({
+    metadata: {
+      title: item.Name,
+    },
     uri: getStreamUrl(serverUrl, item, token, { forceDirectPlay: settings.forceDirectPlay }),
-    useCaching: settings.videoCachingEnabled,
+    useCaching: settings.videoCachingEnabled && settings.forceDirectPlay,
   }), [item, serverUrl, settings.forceDirectPlay, settings.videoCachingEnabled, token]);
   const player = useVideoPlayer(source, (videoPlayer: { play: () => void }) => {
     videoPlayer.play();
   });
+  const { error, status } = useEvent(player, 'statusChange', { error: undefined, status: player.status });
+
+  const handleClose = useCallback(() => {
+    player.pause();
+    onClose();
+  }, [onClose, player]);
+
+  const errorMessage = error?.message ?? (status === 'error' ? 'The embedded player could not play this direct stream.' : undefined);
 
   return (
-    <Modal animationType="slide" onRequestClose={onClose} visible>
+    <Modal animationType="slide" onRequestClose={handleClose} visible>
       <SafeAreaView style={styles.playerContainer}>
         <StatusBar style="light" />
         <View style={styles.playerHeader}>
@@ -886,7 +916,7 @@ function InAppPlayerModal({
             <Text style={styles.kicker}>In-app MPV-style player</Text>
             <Text numberOfLines={1} style={styles.playerTitle}>{item.Name}</Text>
           </View>
-          <Button label="Done" onPress={onClose} variant="secondary" />
+          <Button label="Done" onPress={handleClose} variant="secondary" />
         </View>
         <VideoView
           allowsFullscreen
@@ -896,8 +926,9 @@ function InAppPlayerModal({
           player={player}
           style={styles.videoPlayer}
         />
+        {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : undefined}
         <Text style={styles.playerHint}>
-          Streaming directly from Jellyfin with the app's embedded player. Use the external player option if a codec is not supported by this device.
+          Streaming directly from Jellyfin with the app's embedded player. If this device cannot decode the original file, disable Force direct video in Settings or use an external player such as mpv-android.
         </Text>
       </SafeAreaView>
     </Modal>
@@ -954,6 +985,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginTop: spacing.md,
+  },
+  mutedText: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
   },
   cacheSizePill: {
     backgroundColor: colors.panelRaised,
