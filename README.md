@@ -62,7 +62,7 @@ This repository includes a workflow at `.github/workflows/android-apk.yml` that 
 5. Download the `jellyfin-mobile-release-apk` artifact.
 6. Unzip the artifact and install `jellyfin-mobile-release.apk` on an Android device.
 
-The workflow also runs on pushes to `main` when app source, config, or workflow files change. It intentionally uses `npm install` without setup-node npm caching and avoids setup-java Gradle caching so it can run before a `package-lock.json` or generated `android/` Gradle files exist. The APK is signed with a CI-generated throwaway keystore, which is useful for sideloading and testing. Use a real upload/release keystore before distributing through Google Play or long-term release channels.
+The workflow also runs on pushes to `main` when app source, config, or workflow files change. It intentionally uses `npm install` without setup-node npm caching and avoids setup-java Gradle caching so it can run before a `package-lock.json` or generated `android/` Gradle files exist. The APK is signed with a CI-generated throwaway keystore placed under `android/app`, which is useful for sideloading and testing. Use a real upload/release keystore before distributing through Google Play or long-term release channels.
 
 ### Local equivalent
 

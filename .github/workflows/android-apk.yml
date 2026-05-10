@@ -59,7 +59,7 @@ jobs:
         working-directory: android
         run: |
           ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file=app/github-actions-release.keystore \
+            -Pandroid.injected.signing.store.file=github-actions-release.keystore \
             -Pandroid.injected.signing.store.password=android \
             -Pandroid.injected.signing.key.alias=github-actions \
             -Pandroid.injected.signing.key.password=android
