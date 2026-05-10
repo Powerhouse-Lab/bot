@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "Jellyfin Mobile",
+    "slug": "jellyfin-mobile-client",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#10131f"
+      },
+      "package": "com.jellyfinmobile.client",
+      "versionCode": 1
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
