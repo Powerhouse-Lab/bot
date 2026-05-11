@@ -17,7 +17,6 @@ const expected = {
   'expo-keep-awake': '14.1.3',
   'expo-modules-autolinking': '2.1.8',
   'expo-modules-core': '2.3.10',
-  'expo-video': '2.2.2',
 };
 
 for (const [packageName, expectedVersion] of Object.entries(expected)) {

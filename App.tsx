@@ -1,7 +1,4 @@
-import { useEvent } from 'expo';
 import { StatusBar } from 'expo-status-bar';
-import * as ExpoVideo from 'expo-video';
-import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
@@ -43,47 +40,6 @@ import { colors, spacing } from './src/theme';
 import { AppSettings, JellyfinItem, JellyfinLibrary, JellyfinSession, PublicSystemInfo } from './src/types';
 
 
-type ExpoVideoCacheApi = {
-  clearVideoCacheAsync?: () => Promise<void>;
-  getCurrentVideoCacheSize?: () => Promise<number>;
-  setVideoCacheSizeAsync?: (sizeBytes: number) => Promise<void>;
-};
-
-const videoCacheApi = ExpoVideo as ExpoVideoCacheApi;
-
-function hasVideoCacheApi(): boolean {
-  return (
-    typeof videoCacheApi.clearVideoCacheAsync === 'function'
-    && typeof videoCacheApi.getCurrentVideoCacheSize === 'function'
-    && typeof videoCacheApi.setVideoCacheSizeAsync === 'function'
-  );
-}
-
-async function setPreferredVideoCacheSize(sizeBytes: number): Promise<void> {
-  if (typeof videoCacheApi.setVideoCacheSizeAsync !== 'function') {
-    return;
-  }
-
-  await videoCacheApi.setVideoCacheSizeAsync(sizeBytes);
-}
-
-async function getVideoCacheUsage(): Promise<number | undefined> {
-  if (typeof videoCacheApi.getCurrentVideoCacheSize !== 'function') {
-    return undefined;
-  }
-
-  return videoCacheApi.getCurrentVideoCacheSize();
-}
-
-async function clearVideoCache(): Promise<boolean> {
-  if (typeof videoCacheApi.clearVideoCacheAsync !== 'function') {
-    return false;
-  }
-
-  await videoCacheApi.clearVideoCacheAsync();
-  return true;
-}
-
 type Loadable<T> = {
   data: T;
   loading: boolean;
@@ -113,7 +69,6 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Loadable<JellyfinItem[]>>(initialItems);
   const [selectedItem, setSelectedItem] = useState<JellyfinItem>();
-  const [playbackItem, setPlaybackItem] = useState<JellyfinItem>();
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [detailError, setDetailError] = useState<string>();
 
@@ -152,16 +107,6 @@ export default function App() {
       saveSettings(settings);
     }
   }, [isBooting, settings]);
-
-  useEffect(() => {
-    if (playbackItem) {
-      return;
-    }
-
-    setPreferredVideoCacheSize(settings.videoCachingEnabled ? settings.videoCacheSizeMb * 1024 * 1024 : 0).catch(() => {
-      // Cache sizing depends on native video support and can fail before the player module is ready.
-    });
-  }, [playbackItem, settings.videoCacheSizeMb, settings.videoCachingEnabled]);
 
   const refreshHome = useCallback(async (activeSession: JellyfinSession) => {
     setLibraries((current: Loadable<JellyfinLibrary[]>) => ({ ...current, loading: true, error: undefined }));
@@ -269,7 +214,6 @@ export default function App() {
     setSelectedLibrary(undefined);
     setSearchResults(initialItems);
     setSelectedItem(undefined);
-    setPlaybackItem(undefined);
   }, []);
 
   const handleSearch = useCallback(async () => {
@@ -309,16 +253,6 @@ export default function App() {
       setDetailError(error instanceof Error ? error.message : 'Unable to update favorite.');
     }
   }, [replaceItem, session]);
-
-  const handlePlayInApp = useCallback((item: JellyfinItem) => {
-    setDetailError(undefined);
-    if (!isPlayableMedia(item)) {
-      setDetailError('This item is not a playable audio or video file. Open an episode, movie, or track instead.');
-      return;
-    }
-
-    setPlaybackItem(item);
-  }, []);
 
   const handlePlayExternal = useCallback(async (item: JellyfinItem) => {
     if (!session) {
@@ -498,22 +432,10 @@ export default function App() {
           setDetailError(undefined);
         }}
         onPlayExternal={handlePlayExternal}
-        onPlayInApp={handlePlayInApp}
         onToggleFavorite={handleToggleFavorite}
         serverUrl={session.serverUrl}
         token={session.accessToken}
       />
-
-      {playbackItem ? (
-        <InAppPlayerModal
-          item={playbackItem}
-          key={playbackItem.Id}
-          onClose={() => setPlaybackItem(undefined)}
-          serverUrl={session.serverUrl}
-          settings={settings}
-          token={session.accessToken}
-        />
-      ) : undefined}
     </SafeAreaView>
   );
 }
@@ -664,20 +586,11 @@ function SettingsContent({
   }, [onChangeSettings, settings]);
 
   const refreshCacheSize = useCallback(() => {
-    if (!hasVideoCacheApi()) {
-      setCacheSizeText('Unavailable in this build');
-      return;
-    }
-
-    getVideoCacheUsage()
-      .then((bytes) => setCacheSizeText(bytes === undefined ? 'Unavailable in this build' : formatBytes(bytes)))
-      .catch(() => setCacheSizeText('Unavailable'));
+    setCacheSizeText('Unavailable in crash-safe build');
   }, []);
 
   const clearCache = useCallback(() => {
-    clearVideoCache()
-      .then((cleared) => setCacheSizeText(cleared ? '0 MB' : 'Unavailable in this build'))
-      .catch(() => setCacheSizeText('Close the player and try again'));
+    setCacheSizeText('Unavailable in crash-safe build');
   }, []);
 
   useEffect(() => {
@@ -694,7 +607,7 @@ function SettingsContent({
         value={settings.forceDirectPlay}
       />
       <SettingsRow
-        description="Use the embedded video cache for direct streams to reduce repeat network usage."
+        description="Disabled in the crash-safe build because the native video module was removed."
         label="Cache video"
         onValueChange={(value) => updateSetting('videoCachingEnabled', value)}
         value={settings.videoCachingEnabled}
@@ -862,7 +775,6 @@ function ItemDetailsModal({
   item,
   onClose,
   onPlayExternal,
-  onPlayInApp,
   onToggleFavorite,
   serverUrl,
   token,
@@ -871,7 +783,6 @@ function ItemDetailsModal({
   item?: JellyfinItem;
   onClose: () => void;
   onPlayExternal: (item: JellyfinItem) => void;
-  onPlayInApp: (item: JellyfinItem) => void;
   onToggleFavorite: (item: JellyfinItem) => void;
   serverUrl: string;
   token: string;
@@ -901,10 +812,7 @@ function ItemDetailsModal({
             {detailError ? <Text style={styles.errorText}>{detailError}</Text> : undefined}
             <View style={styles.actionStack}>
               {playable ? (
-                <>
-                  <Button label="Play in app" onPress={() => onPlayInApp(item)} />
-                  <Button label="Open in external player" onPress={() => onPlayExternal(item)} variant="secondary" />
-                </>
+                <Button label="Open in external player" onPress={() => onPlayExternal(item)} />
               ) : (
                 <Text style={styles.mutedText}>Open a movie, episode, or track to start playback.</Text>
               )}
@@ -918,67 +826,6 @@ function ItemDetailsModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
-  );
-}
-
-
-function InAppPlayerModal({
-  item,
-  onClose,
-  serverUrl,
-  settings,
-  token,
-}: {
-  item: JellyfinItem;
-  onClose: () => void;
-  serverUrl: string;
-  settings: AppSettings;
-  token: string;
-}) {
-  const source = useMemo(() => ({
-    metadata: {
-      title: item.Name,
-    },
-    uri: getStreamUrl(serverUrl, item, token, { forceDirectPlay: settings.forceDirectPlay }),
-    useCaching: settings.videoCachingEnabled && settings.forceDirectPlay,
-  }), [item, serverUrl, settings.forceDirectPlay, settings.videoCachingEnabled, token]);
-  const player = useVideoPlayer(source, (videoPlayer: { play: () => void }) => {
-    videoPlayer.play();
-  });
-  const { error, status } = useEvent(player, 'statusChange', { error: undefined, status: player.status });
-
-  const handleClose = useCallback(() => {
-    player.pause();
-    onClose();
-  }, [onClose, player]);
-
-  const errorMessage = error?.message ?? (status === 'error' ? 'The embedded player could not play this direct stream.' : undefined);
-
-  return (
-    <Modal animationType="slide" onRequestClose={handleClose} visible>
-      <SafeAreaView style={styles.playerContainer}>
-        <StatusBar style="light" />
-        <View style={styles.playerHeader}>
-          <View style={styles.flex}>
-            <Text style={styles.kicker}>In-app MPV-style player</Text>
-            <Text numberOfLines={1} style={styles.playerTitle}>{item.Name}</Text>
-          </View>
-          <Button label="Done" onPress={handleClose} variant="secondary" />
-        </View>
-        <VideoView
-          allowsFullscreen
-          allowsPictureInPicture
-          contentFit="contain"
-          nativeControls
-          player={player}
-          style={styles.videoPlayer}
-        />
-        {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : undefined}
-        <Text style={styles.playerHint}>
-          Streaming directly from Jellyfin with the app's embedded player. If this device cannot decode the original file, disable Force direct video in Settings or use an external player such as mpv-android.
-        </Text>
-      </SafeAreaView>
     </Modal>
   );
 }
@@ -1212,33 +1059,6 @@ const styles = StyleSheet.create({
   },
   posterImage: {
     height: '100%',
-    width: '100%',
-  },
-  playerContainer: {
-    backgroundColor: '#05070d',
-    flex: 1,
-  },
-  playerHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.md,
-    padding: spacing.md,
-  },
-  playerHint: {
-    color: colors.muted,
-    fontSize: 13,
-    lineHeight: 20,
-    padding: spacing.md,
-  },
-  playerTitle: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: '900',
-    marginTop: spacing.xs,
-  },
-  videoPlayer: {
-    backgroundColor: '#000',
-    flex: 1,
     width: '100%',
   },
   progressText: {

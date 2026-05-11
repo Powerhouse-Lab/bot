@@ -10,7 +10,7 @@ A lightweight Expo React Native mobile client for Jellyfin. The app signs in to 
 - Home dashboard with user libraries, continue watching, and recently added media.
 - Library browsing with selectable Jellyfin collections.
 - Server-wide search across movies, shows, episodes, albums, and songs.
-- Item detail sheets with overview, runtime, progress, favorite toggling, embedded MPV-style playback, and external playback links.
+- Item detail sheets with overview, runtime, progress, favorite toggling, and crash-safe external playback links for mpv-android or other device players.
 - Pull-to-refresh and sign-out support.
 - Dark Jellyfin-inspired mobile UI.
 
@@ -18,7 +18,7 @@ A lightweight Expo React Native mobile client for Jellyfin. The app signs in to 
 
 ## Core client coverage
 
-This scaffold now covers the important pieces expected from a Jellyfin mobile client: authentication, persisted sessions, library browsing, search, resume/continue watching, recently added media, poster art, favorite management, item details, embedded MPV-style playback, and opening server stream URLs in a player registered on the device.
+This scaffold now covers the important pieces expected from a Jellyfin mobile client: authentication, persisted sessions, library browsing, search, resume/continue watching, recently added media, poster art, favorite management, item details, and opening server stream URLs in a player registered on the device.
 
 ## Preview
 
@@ -45,9 +45,9 @@ Then open the app in Expo Go or an emulator and enter your Jellyfin server URL p
 
 ## Playback and caching
 
-The in-app player requests Jellyfin direct streams by default (`Static=true`) to avoid server transcoding. It only shows playback actions for real audio/video items, uses the Jellyfin media source ID and source container extension when available, and reports embedded-player errors instead of trying to play library folders or series. Dependencies are pinned to Expo SDK 53-compatible React and Expo native module versions, the generated native app disables React Native's new architecture to avoid `expo-video` Fabric shared-object crashes on affected Android builds, and Settings gracefully disables cache controls when the installed `expo-video` build does not expose cache APIs. If a file cannot be decoded by the device, disable **Force direct video** in Settings or use **Open in external player** with an installed player such as mpv-android.
+Playback requests Jellyfin direct streams by default (`Static=true`) to avoid server transcoding. The crash-safe build removes the native `expo-video` module entirely and opens audio/video items in a registered Android player such as mpv-android, VLC, or the system player. It only shows playback actions for real audio/video items, uses the Jellyfin media source ID and source container extension when available, and avoids trying to play library folders or series.
 
-Video caching can be enabled from Settings. The app uses `expo-video` source caching for direct streams, exposes 512 MB / 1 GB / 2 GB preferred cache limits, shows current cache usage, and can clear the cache when no player is active.
+Video cache controls remain visible for settings compatibility, but native video caching is disabled in this crash-safe APK because the native video module was removed.
 
 ## Build an APK with GitHub Actions
 
@@ -80,7 +80,7 @@ To have the workflow send the APK to Telegram after it is built, create these re
 
 When the required Telegram secrets are set, the workflow uploads `jellyfin-mobile-release.apk` to Telegram with the Bot API `sendDocument` endpoint after publishing the GitHub Release. If either required secret is missing, the Telegram step is skipped and the APK is still available from Releases.
 
-The workflow also runs on pushes to `main` when app source, config, or workflow files change. It intentionally uses `npm install` without setup-node npm caching and avoids setup-java Gradle caching so it can run before a `package-lock.json` or generated `android/` Gradle files exist. After install, CI runs `npm run verify:react-versions` and fails early if npm resolves React or Expo native modules away from the Expo SDK 53 pins; it also forces `newArchEnabled=false` during prebuild and Gradle to avoid affected `expo-video` Fabric builds. The APK is signed with a CI-generated throwaway keystore placed under `android/app` and passed to Gradle by absolute path, which is useful for sideloading and testing. Use a real upload/release keystore before distributing through Google Play or long-term release channels.
+The workflow also runs on pushes to `main` when app source, config, or workflow files change. It intentionally uses `npm install` without setup-node npm caching and avoids setup-java Gradle caching so it can run before a `package-lock.json` or generated `android/` Gradle files exist. After install, CI runs `npm run verify:react-versions` and fails early if npm resolves React or Expo native modules away from the Expo SDK 53 pins; it also forces `newArchEnabled=false` during prebuild and Gradle. The APK is signed with a CI-generated throwaway keystore placed under `android/app` and passed to Gradle by absolute path, which is useful for sideloading and testing. Use a real upload/release keystore before distributing through Google Play or long-term release channels.
 
 ### Local equivalent
 
@@ -91,7 +91,7 @@ npm run build:android:apk
 
 The local command generates a native Android project with Expo prebuild and runs Gradle's `assembleRelease` task. If you need a Play Store artifact instead of a sideloadable APK, configure EAS Build or Gradle to produce an Android App Bundle (`.aab`).
 
-If you previously built an APK from the earlier dependency ranges, delete `node_modules` and reinstall before rebuilding so React stays pinned to `19.0.0`, TypeScript installs from the published `5.8.3` release, and React matches React Native's renderer. The Android version was bumped to `0.1.2` / `versionCode` 3 so devices install this fixed APK over the earlier crashing builds. The GitHub workflow starts from a clean checkout, verifies the installed React and Expo native module versions, and forces the old React Native architecture for the generated APK.
+If you previously built an APK from the earlier dependency ranges, delete `node_modules` and reinstall before rebuilding so React stays pinned to `19.0.0`, TypeScript installs from the published `5.8.3` release, and React matches React Native's renderer. The Android version was bumped to `0.1.3` / `versionCode` 4 so devices install this crash-safe APK over the earlier crashing builds. The GitHub workflow starts from a clean checkout, verifies the installed React and Expo native module versions, and forces the old React Native architecture for the generated APK.
 
 ## Notes
 
