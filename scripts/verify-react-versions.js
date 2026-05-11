@@ -9,6 +9,15 @@ function readVersion(packageName) {
 const expected = {
   react: '19.0.0',
   'react-native': '0.79.0',
+  expo: '53.0.0',
+  'expo-asset': '11.1.3',
+  'expo-constants': '17.1.3',
+  'expo-file-system': '18.1.7',
+  'expo-font': '13.2.2',
+  'expo-keep-awake': '14.1.3',
+  'expo-modules-autolinking': '2.1.8',
+  'expo-modules-core': '2.3.10',
+  'expo-video': '2.2.2',
 };
 
 for (const [packageName, expectedVersion] of Object.entries(expected)) {
@@ -18,4 +27,4 @@ for (const [packageName, expectedVersion] of Object.entries(expected)) {
   }
 }
 
-console.log('React package versions match the Expo SDK 53 runtime pins.');
+console.log('React and Expo native module package versions match the Expo SDK 53 runtime pins.');
