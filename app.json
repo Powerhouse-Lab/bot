@@ -2,7 +2,7 @@
   "expo": {
     "name": "Jellyfin Mobile",
     "slug": "jellyfin-mobile-client",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "assetBundlePatterns": [
@@ -16,7 +16,7 @@
         "backgroundColor": "#10131f"
       },
       "package": "com.jellyfinmobile.client",
-      "versionCode": 4
+      "versionCode": 5
     },
     "web": {
       "bundler": "metro"

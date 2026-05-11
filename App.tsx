@@ -4,7 +4,6 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -34,6 +33,7 @@ import {
 } from './src/api/jellyfin';
 import { Button } from './src/components/Button';
 import { EmptyState } from './src/components/EmptyState';
+import { openWithMpvAndroid } from './src/playback/mpv';
 import { clearSession, loadSession, saveSession } from './src/storage/session';
 import { defaultSettings, loadSettings, saveSettings } from './src/storage/settings';
 import { colors, spacing } from './src/theme';
@@ -266,9 +266,9 @@ export default function App() {
     }
 
     try {
-      await Linking.openURL(getStreamUrl(session.serverUrl, item, session.accessToken, { forceDirectPlay: settings.forceDirectPlay }));
+      await openWithMpvAndroid(getStreamUrl(session.serverUrl, item, session.accessToken, { forceDirectPlay: settings.forceDirectPlay }), item);
     } catch (error) {
-      setDetailError(error instanceof Error ? error.message : 'Unable to open this item for external playback.');
+      setDetailError(error instanceof Error ? error.message : 'Unable to open this item in mpv or another external player.');
     }
   }, [session, settings.forceDirectPlay]);
 
@@ -812,7 +812,7 @@ function ItemDetailsModal({
             {detailError ? <Text style={styles.errorText}>{detailError}</Text> : undefined}
             <View style={styles.actionStack}>
               {playable ? (
-                <Button label="Open in external player" onPress={() => onPlayExternal(item)} />
+                <Button label="Play with mpv" onPress={() => onPlayExternal(item)} />
               ) : (
                 <Text style={styles.mutedText}>Open a movie, episode, or track to start playback.</Text>
               )}
