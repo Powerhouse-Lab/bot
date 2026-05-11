@@ -1,0 +1,133 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'App.tsx'
+      - 'app.json'
+      - 'babel.config.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'src/**'
+      - 'scripts/**'
+      - '.github/workflows/android-apk.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    name: Build signed release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Verify React runtime versions
+        run: npm run verify:react-versions
+
+      - name: Generate Android project
+        env:
+          RCT_NEW_ARCH_ENABLED: '0'
+          ORG_GRADLE_PROJECT_newArchEnabled: 'false'
+        run: npx --no-install expo prebuild --platform android --clean --non-interactive
+
+      - name: Force old React Native architecture
+        run: |
+          if [ -f android/gradle.properties ]; then
+            if grep -q '^newArchEnabled=' android/gradle.properties; then
+              sed -i 's/^newArchEnabled=.*/newArchEnabled=false/' android/gradle.properties
+            else
+              echo 'newArchEnabled=false' >> android/gradle.properties
+            fi
+          fi
+          grep '^newArchEnabled=false' android/gradle.properties
+
+      - name: Create CI signing keystore
+        run: |
+          keytool -genkeypair \
+            -v \
+            -storetype PKCS12 \
+            -keystore android/app/github-actions-release.keystore \
+            -alias github-actions \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass android \
+            -keypass android \
+            -dname "CN=GitHub Actions,O=Jellyfin Mobile,C=US"
+
+      - name: Build release APK
+        working-directory: android
+        env:
+          RCT_NEW_ARCH_ENABLED: '0'
+          ORG_GRADLE_PROJECT_newArchEnabled: 'false'
+        run: |
+          ./gradlew assembleRelease -PnewArchEnabled=false \
+            -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/android/app/github-actions-release.keystore \
+            -Pandroid.injected.signing.store.password=android \
+            -Pandroid.injected.signing.key.alias=github-actions \
+            -Pandroid.injected.signing.key.password=android
+
+      - name: Collect APK
+        run: |
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/release/*.apk artifacts/jellyfin-mobile-release.apk
+          test -s artifacts/jellyfin-mobile-release.apk
+
+      - name: Publish raw APK release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: apk-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            artifacts/jellyfin-mobile-release.apk \
+            --title "Jellyfin Mobile APK ${{ github.run_number }}" \
+            --notes "Direct APK download from GitHub Actions run ${{ github.run_number }}. This release contains the raw .apk file, not a zipped Actions artifact." \
+            --latest
+
+      - name: Send APK to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Skipping Telegram upload because TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set."
+            exit 0
+          fi
+
+          curl_args=(
+            --fail-with-body
+            --show-error
+            --silent
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
+            -F "chat_id=${TELEGRAM_CHAT_ID}"
+            -F "document=@artifacts/jellyfin-mobile-release.apk"
+            -F "caption=Jellyfin Mobile APK from GitHub Actions run ${{ github.run_number }}"
+          )
+
+          if [ -n "$TELEGRAM_MESSAGE_THREAD_ID" ]; then
+            curl_args+=(-F "message_thread_id=${TELEGRAM_MESSAGE_THREAD_ID}")
+          fi
+
+          curl "${curl_args[@]}"
