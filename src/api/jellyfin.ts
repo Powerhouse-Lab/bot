@@ -97,7 +97,7 @@ export async function getLibraries(serverUrl: string, userId: string, token: str
 export async function getLatestItems(serverUrl: string, userId: string, token: string): Promise<JellyfinItem[]> {
   const params = new URLSearchParams({
     Limit: '30',
-    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData,MediaSources',
+    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData,MediaSources,CommunityRating,CriticRating,OfficialRating,Genres,Studios',
     EnableImageTypes: 'Primary,Backdrop,Thumb',
   });
 
@@ -113,7 +113,7 @@ export async function getResumeItems(serverUrl: string, userId: string, token: s
   const params = new URLSearchParams({
     Limit: '20',
     MediaTypes: 'Video',
-    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData,MediaSources',
+    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData,MediaSources,CommunityRating,CriticRating,OfficialRating,Genres,Studios',
     EnableImageTypes: 'Primary,Backdrop,Thumb',
   });
 
@@ -133,7 +133,7 @@ export async function getLibraryItems(serverUrl: string, userId: string, token: 
     SortBy: 'SortName',
     SortOrder: 'Ascending',
     Limit: '60',
-    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData,MediaSources',
+    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData,MediaSources,CommunityRating,CriticRating,OfficialRating,Genres,Studios',
     EnableImageTypes: 'Primary,Backdrop,Thumb',
   });
 
@@ -152,7 +152,7 @@ export async function searchItems(serverUrl: string, userId: string, token: stri
     Recursive: 'true',
     IncludeItemTypes: 'Movie,Series,Episode,Audio,MusicAlbum',
     Limit: '40',
-    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData,MediaSources',
+    Fields: 'Overview,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,UserData,MediaSources,CommunityRating,CriticRating,OfficialRating,Genres,Studios',
     EnableImageTypes: 'Primary,Backdrop,Thumb',
   });
 

@@ -770,6 +770,42 @@ function MediaCard({ compact = false, item, onPress, serverUrl, token }: { compa
   );
 }
 
+
+function cleanOverview(overview?: string): string | undefined {
+  return overview
+    ?.replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function formatRating(value?: number): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  return value % 1 === 0 ? String(value) : value.toFixed(1);
+}
+
+function getItemInfoChips(item: JellyfinItem, runtime?: string, progress?: string): string[] {
+  const studio = item.Studios?.[0]?.Name;
+  const communityRating = formatRating(item.CommunityRating);
+  const criticRating = formatRating(item.CriticRating);
+
+  return [
+    item.SeriesName,
+    item.Type ?? item.MediaType,
+    item.ProductionYear ? String(item.ProductionYear) : undefined,
+    runtime,
+    progress,
+    item.OfficialRating,
+    communityRating ? `★ ${communityRating}` : undefined,
+    criticRating ? `${criticRating}% critic` : undefined,
+    ...(item.Genres?.slice(0, 3) ?? []),
+    studio,
+  ].filter(Boolean) as string[];
+}
+
 function ItemDetailsModal({
   detailError,
   item,
@@ -787,45 +823,90 @@ function ItemDetailsModal({
   serverUrl: string;
   token: string;
 }) {
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+
+  useEffect(() => {
+    setDescriptionExpanded(false);
+  }, [item?.Id]);
+
   if (!item) {
     return undefined;
   }
 
-  const imageUrl = getPrimaryImageUrl(serverUrl, item, token, 720);
+  const imageUrl = getPrimaryImageUrl(serverUrl, item, token, 900);
   const runtime = formatRuntime(item.RunTimeTicks);
   const progress = formatProgress(item);
   const playable = isPlayableMedia(item);
+  const overview = cleanOverview(item.Overview);
+  const infoChips = getItemInfoChips(item, runtime, progress);
+  const shouldCollapseOverview = Boolean(overview && overview.length > 260);
+  const visibleOverview = shouldCollapseOverview && !descriptionExpanded ? `${overview?.slice(0, 260).trim()}…` : overview;
 
   return (
-    <Modal animationType="slide" onRequestClose={onClose} transparent visible={Boolean(item)}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <View style={styles.detailPoster}>
-              {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.posterImage} /> : <Text style={styles.posterFallback}>JF</Text>}
-            </View>
-            <Text style={styles.detailTitle}>{item.Name}</Text>
-            <Text style={styles.mediaMeta}>
-              {[item.SeriesName, item.Type ?? item.MediaType, item.ProductionYear, runtime, progress].filter(Boolean).join(' • ')}
-            </Text>
-            {item.Overview ? <Text style={styles.detailOverview}>{item.Overview}</Text> : undefined}
-            {detailError ? <Text style={styles.errorText}>{detailError}</Text> : undefined}
-            <View style={styles.actionStack}>
-              {playable ? (
-                <Button label="Play with mpv" onPress={() => onPlayExternal(item)} />
-              ) : (
-                <Text style={styles.mutedText}>Open a movie, episode, or track to start playback.</Text>
-              )}
-              <Button
-                label={item.UserData?.IsFavorite ? 'Remove favorite' : 'Add favorite'}
-                onPress={() => onToggleFavorite(item)}
-                variant="secondary"
-              />
-              <Button label="Close" onPress={onClose} variant="secondary" />
-            </View>
-          </ScrollView>
+    <Modal animationType="slide" onRequestClose={onClose} visible={Boolean(item)}>
+      <SafeAreaView style={styles.detailScreen}>
+        <StatusBar style="light" />
+        <View style={styles.detailHeader}>
+          <Pressable accessibilityRole="button" onPress={onClose} style={styles.iconButton}>
+            <Text style={styles.iconButtonText}>×</Text>
+          </Pressable>
+          <Text numberOfLines={1} style={styles.detailHeaderTitle}>Details</Text>
+          <Pressable accessibilityRole="button" onPress={() => onToggleFavorite(item)} style={[styles.iconButton, item.UserData?.IsFavorite ? styles.iconButtonActive : undefined]}>
+            <Text style={styles.iconButtonText}>{item.UserData?.IsFavorite ? '★' : '☆'}</Text>
+          </Pressable>
         </View>
-      </View>
+
+        <ScrollView contentContainerStyle={styles.detailScreenContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.detailHeroPoster}>
+            {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.posterImage} /> : <Text style={styles.posterFallback}>JF</Text>}
+            {item.UserData?.IsFavorite ? <Text style={styles.detailFavoriteBadge}>★ Favorite</Text> : undefined}
+          </View>
+
+          <Text style={styles.detailTitle}>{item.Name}</Text>
+          <View style={styles.detailChipRow}>
+            {infoChips.map((chip) => <Text key={chip} style={styles.detailChip}>{chip}</Text>)}
+          </View>
+
+          {overview ? (
+            <View style={styles.detailInfoCard}>
+              <View style={styles.detailSectionHeader}>
+                <Text style={styles.detailSectionTitle}>Description</Text>
+                {shouldCollapseOverview ? (
+                  <Pressable onPress={() => setDescriptionExpanded((expanded) => !expanded)}>
+                    <Text style={styles.readMoreText}>{descriptionExpanded ? 'Show less' : 'Expand'}</Text>
+                  </Pressable>
+                ) : undefined}
+              </View>
+              <Text style={styles.detailOverview}>{visibleOverview}</Text>
+            </View>
+          ) : undefined}
+
+          {(item.CommunityRating || item.CriticRating || item.OfficialRating || item.Genres?.length) ? (
+            <View style={styles.detailInfoCard}>
+              <Text style={styles.detailSectionTitle}>Anime info</Text>
+              {item.CommunityRating ? <Text style={styles.detailInfoLine}>Community rating: ★ {formatRating(item.CommunityRating)}</Text> : undefined}
+              {item.CriticRating ? <Text style={styles.detailInfoLine}>Critic rating: {formatRating(item.CriticRating)}%</Text> : undefined}
+              {item.OfficialRating ? <Text style={styles.detailInfoLine}>Age rating: {item.OfficialRating}</Text> : undefined}
+              {item.Genres?.length ? <Text style={styles.detailInfoLine}>Genres: {item.Genres.join(', ')}</Text> : undefined}
+            </View>
+          ) : undefined}
+
+          {detailError ? <Text style={styles.errorText}>{detailError}</Text> : undefined}
+          <View style={styles.actionStack}>
+            {playable ? (
+              <Button label="Play with mpv" onPress={() => onPlayExternal(item)} />
+            ) : (
+              <Text style={styles.mutedText}>Open a movie, episode, or track to start playback.</Text>
+            )}
+            <Button
+              label={item.UserData?.IsFavorite ? 'Remove favorite' : 'Add favorite'}
+              onPress={() => onToggleFavorite(item)}
+              variant="secondary"
+            />
+            <Button label="Close" onPress={onClose} variant="secondary" />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -853,6 +934,75 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     flex: 1,
   },
+
+  detailChip: {
+    backgroundColor: colors.panelRaised,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '700',
+    overflow: 'hidden',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  detailChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  detailFavoriteBadge: {
+    backgroundColor: colors.primary,
+    borderRadius: 999,
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    position: 'absolute',
+    right: spacing.md,
+    top: spacing.md,
+  },
+  detailHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  detailHeaderTitle: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  detailHeroPoster: {
+    alignItems: 'center',
+    aspectRatio: 0.78,
+    backgroundColor: colors.panelRaised,
+    borderRadius: 28,
+    justifyContent: 'center',
+    marginTop: spacing.md,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  detailInfoCard: {
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginTop: spacing.lg,
+    padding: spacing.md,
+  },
+  detailInfoLine: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: spacing.sm,
+  },
   detailOverview: {
     color: colors.muted,
     fontSize: 15,
@@ -867,6 +1017,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
     width: '100%',
+  },
+
+  detailScreen: {
+    backgroundColor: colors.background,
+    flex: 1,
+  },
+  detailScreenContent: {
+    paddingBottom: spacing.xl,
+    paddingHorizontal: spacing.lg,
+  },
+  detailSectionHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  detailSectionTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
   },
   detailTitle: {
     color: colors.text,
@@ -938,6 +1107,27 @@ const styles = StyleSheet.create({
   },
   homeHeader: {
     paddingTop: spacing.lg,
+  },
+
+  iconButton: {
+    alignItems: 'center',
+    backgroundColor: colors.panelRaised,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  iconButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  iconButtonText: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: '900',
+    lineHeight: 28,
   },
   input: {
     backgroundColor: colors.background,
@@ -1067,6 +1257,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginHorizontal: spacing.md,
     marginTop: spacing.xs,
+  },
+
+  readMoreText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '900',
   },
   settingsActions: {
     flexDirection: 'row',

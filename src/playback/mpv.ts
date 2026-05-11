@@ -18,16 +18,7 @@ export function getMpvAndroidIntentUrl(streamUrl: string, item: JellyfinItem): s
   const title = encodeIntentValue(item.Name);
   const mimeType = getStreamMimeType(item);
 
-  return [
-    `intent://${intentPath}`,
-    '#Intent',
-    `scheme=${scheme}`,
-    'action=android.intent.action.VIEW',
-    `type=${mimeType}`,
-    `package=${MPV_ANDROID_PACKAGE}`,
-    `S.title=${title}`,
-    'end',
-  ].join(';');
+  return `intent://${intentPath}#Intent;scheme=${scheme};action=android.intent.action.VIEW;type=${mimeType};package=${MPV_ANDROID_PACKAGE};S.title=${title};end`;
 }
 
 export async function openWithMpvAndroid(streamUrl: string, item: JellyfinItem): Promise<void> {

@@ -91,7 +91,7 @@ npm run build:android:apk
 
 The local command generates a native Android project with Expo prebuild and runs Gradle's `assembleRelease` task. If you need a Play Store artifact instead of a sideloadable APK, configure EAS Build or Gradle to produce an Android App Bundle (`.aab`).
 
-If you previously built an APK from the earlier dependency ranges, delete `node_modules` and reinstall before rebuilding so React stays pinned to `19.0.0`, TypeScript installs from the published `5.8.3` release, and React matches React Native's renderer. The Android version was bumped to `0.1.4` / `versionCode` 5 so devices install this mpv-first crash-safe APK over the earlier crashing builds. The GitHub workflow starts from a clean checkout, verifies the installed React and Expo native module versions, and forces the old React Native architecture for the generated APK.
+If you previously built an APK from the earlier dependency ranges, delete `node_modules` and reinstall before rebuilding so React stays pinned to `19.0.0`, TypeScript installs from the published `5.8.3` release, and React matches React Native's renderer. The Android version was bumped to `0.1.5` / `versionCode` 6 so devices install this mpv-first crash-safe APK over the earlier crashing builds. The GitHub workflow starts from a clean checkout, verifies the installed React and Expo native module versions, and forces the old React Native architecture for the generated APK.
 
 ## Notes
 

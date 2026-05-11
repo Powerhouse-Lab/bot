@@ -39,6 +39,11 @@ export type JellyfinUserData = {
   PlayCount?: number;
 };
 
+export type JellyfinStudio = {
+  Id?: string;
+  Name: string;
+};
+
 export type JellyfinMediaSource = {
   Id?: string;
   Container?: string;
@@ -56,6 +61,11 @@ export type JellyfinItem = {
   MediaType?: string;
   ProductionYear?: number;
   Overview?: string;
+  CommunityRating?: number;
+  CriticRating?: number;
+  OfficialRating?: string;
+  Genres?: string[];
+  Studios?: JellyfinStudio[];
   RunTimeTicks?: number;
   SeriesName?: string;
   AlbumArtist?: string;
