@@ -12,6 +12,7 @@ on:
       - 'package-lock.json'
       - 'tsconfig.json'
       - 'src/**'
+      - 'scripts/**'
       - '.github/workflows/android-apk.yml'
 
 permissions:
@@ -41,8 +42,25 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Verify React runtime versions
+        run: npm run verify:react-versions
+
       - name: Generate Android project
-        run: npx expo prebuild --platform android --clean --non-interactive
+        env:
+          RCT_NEW_ARCH_ENABLED: '0'
+          ORG_GRADLE_PROJECT_newArchEnabled: 'false'
+        run: npx --no-install expo prebuild --platform android --clean --non-interactive
+
+      - name: Force old React Native architecture
+        run: |
+          if [ -f android/gradle.properties ]; then
+            if grep -q '^newArchEnabled=' android/gradle.properties; then
+              sed -i 's/^newArchEnabled=.*/newArchEnabled=false/' android/gradle.properties
+            else
+              echo 'newArchEnabled=false' >> android/gradle.properties
+            fi
+          fi
+          grep '^newArchEnabled=false' android/gradle.properties
 
       - name: Create CI signing keystore
         run: |
@@ -60,8 +78,11 @@ jobs:
 
       - name: Build release APK
         working-directory: android
+        env:
+          RCT_NEW_ARCH_ENABLED: '0'
+          ORG_GRADLE_PROJECT_newArchEnabled: 'false'
         run: |
-          ./gradlew assembleRelease \
+          ./gradlew assembleRelease -PnewArchEnabled=false \
             -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/android/app/github-actions-release.keystore \
             -Pandroid.injected.signing.store.password=android \
             -Pandroid.injected.signing.key.alias=github-actions \

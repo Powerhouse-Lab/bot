@@ -80,7 +80,7 @@ To have the workflow send the APK to Telegram after it is built, create these re
 
 When the required Telegram secrets are set, the workflow uploads `jellyfin-mobile-release.apk` to Telegram with the Bot API `sendDocument` endpoint after publishing the GitHub Release. If either required secret is missing, the Telegram step is skipped and the APK is still available from Releases.
 
-The workflow also runs on pushes to `main` when app source, config, or workflow files change. It intentionally uses `npm install` without setup-node npm caching and avoids setup-java Gradle caching so it can run before a `package-lock.json` or generated `android/` Gradle files exist. The APK is signed with a CI-generated throwaway keystore placed under `android/app` and passed to Gradle by absolute path, which is useful for sideloading and testing. Use a real upload/release keystore before distributing through Google Play or long-term release channels.
+The workflow also runs on pushes to `main` when app source, config, or workflow files change. It intentionally uses `npm install` without setup-node npm caching and avoids setup-java Gradle caching so it can run before a `package-lock.json` or generated `android/` Gradle files exist. After install, CI runs `npm run verify:react-versions` and fails early if npm resolves React away from the Expo SDK 53 pins; it also forces `newArchEnabled=false` during prebuild and Gradle to avoid affected `expo-video` Fabric builds. The APK is signed with a CI-generated throwaway keystore placed under `android/app` and passed to Gradle by absolute path, which is useful for sideloading and testing. Use a real upload/release keystore before distributing through Google Play or long-term release channels.
 
 ### Local equivalent
 
@@ -91,7 +91,7 @@ npm run build:android:apk
 
 The local command generates a native Android project with Expo prebuild and runs Gradle's `assembleRelease` task. If you need a Play Store artifact instead of a sideloadable APK, configure EAS Build or Gradle to produce an Android App Bundle (`.aab`).
 
-If you previously built an APK from the earlier dependency ranges, delete `node_modules` and reinstall before rebuilding so React stays pinned to `19.0.0`, TypeScript installs from the published `5.8.3` release, and React matches React Native's renderer. The GitHub workflow starts from a clean checkout, so it automatically uses the pinned versions.
+If you previously built an APK from the earlier dependency ranges, delete `node_modules` and reinstall before rebuilding so React stays pinned to `19.0.0`, TypeScript installs from the published `5.8.3` release, and React matches React Native's renderer. The Android version was bumped to `0.1.1` / `versionCode` 2 so devices install this fixed APK over the earlier crashing build. The GitHub workflow starts from a clean checkout, verifies the installed React versions, and forces the old React Native architecture for the generated APK.
 
 ## Notes
 
