@@ -9,6 +9,7 @@ function readVersion(packageName) {
 const expected = {
   react: '19.0.0',
   'react-native': '0.79.0',
+  'react-native-webview': '13.13.5',
   expo: '53.0.0',
   'expo-asset': '11.1.3',
   'expo-constants': '17.1.3',

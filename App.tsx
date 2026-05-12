@@ -16,6 +16,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { WebView } from 'react-native-webview';
 import {
   authenticate,
   formatProgress,
@@ -69,6 +70,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Loadable<JellyfinItem[]>>(initialItems);
   const [selectedItem, setSelectedItem] = useState<JellyfinItem>();
+  const [playbackItem, setPlaybackItem] = useState<JellyfinItem>();
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [detailError, setDetailError] = useState<string>();
 
@@ -214,6 +216,7 @@ export default function App() {
     setSelectedLibrary(undefined);
     setSearchResults(initialItems);
     setSelectedItem(undefined);
+    setPlaybackItem(undefined);
   }, []);
 
   const handleSearch = useCallback(async () => {
@@ -253,6 +256,17 @@ export default function App() {
       setDetailError(error instanceof Error ? error.message : 'Unable to update favorite.');
     }
   }, [replaceItem, session]);
+
+
+  const handlePlayInApp = useCallback((item: JellyfinItem) => {
+    setDetailError(undefined);
+    if (!isPlayableMedia(item)) {
+      setDetailError('This item is not a playable audio or video file. Open an episode, movie, or track instead.');
+      return;
+    }
+
+    setPlaybackItem(item);
+  }, []);
 
   const handlePlayExternal = useCallback(async (item: JellyfinItem) => {
     if (!session) {
@@ -432,10 +446,22 @@ export default function App() {
           setDetailError(undefined);
         }}
         onPlayExternal={handlePlayExternal}
+        onPlayInApp={handlePlayInApp}
         onToggleFavorite={handleToggleFavorite}
         serverUrl={session.serverUrl}
         token={session.accessToken}
       />
+
+      {playbackItem ? (
+        <InAppWebPlayerModal
+          item={playbackItem}
+          onClose={() => setPlaybackItem(undefined)}
+          onOpenExternal={handlePlayExternal}
+          serverUrl={session.serverUrl}
+          settings={settings}
+          token={session.accessToken}
+        />
+      ) : undefined}
     </SafeAreaView>
   );
 }
@@ -811,6 +837,7 @@ function ItemDetailsModal({
   item,
   onClose,
   onPlayExternal,
+  onPlayInApp,
   onToggleFavorite,
   serverUrl,
   token,
@@ -819,6 +846,7 @@ function ItemDetailsModal({
   item?: JellyfinItem;
   onClose: () => void;
   onPlayExternal: (item: JellyfinItem) => void;
+  onPlayInApp: (item: JellyfinItem) => void;
   onToggleFavorite: (item: JellyfinItem) => void;
   serverUrl: string;
   token: string;
@@ -894,7 +922,10 @@ function ItemDetailsModal({
           {detailError ? <Text style={styles.errorText}>{detailError}</Text> : undefined}
           <View style={styles.actionStack}>
             {playable ? (
-              <Button label="Play with mpv" onPress={() => onPlayExternal(item)} />
+              <>
+                <Button label="Play in app" onPress={() => onPlayInApp(item)} />
+                <Button label="Open with mpv" onPress={() => onPlayExternal(item)} variant="secondary" />
+              </>
             ) : (
               <Text style={styles.mutedText}>Open a movie, episode, or track to start playback.</Text>
             )}
@@ -906,6 +937,85 @@ function ItemDetailsModal({
             <Button label="Close" onPress={onClose} variant="secondary" />
           </View>
         </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildVideoPlayerHtml(streamUrl: string, title: string): string {
+  const safeUrl = escapeHtml(streamUrl);
+  const safeTitle = escapeHtml(title);
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; color: #f6f7fb; font-family: sans-serif; }
+    body { display: flex; flex-direction: column; }
+    .title { padding: 10px 14px; background: #10131f; font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wrap { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; }
+    video { width: 100%; height: 100%; background: #000; }
+  </style>
+</head>
+<body>
+  <div class="title">${safeTitle}</div>
+  <div class="wrap">
+    <video src="${safeUrl}" controls autoplay playsinline webkit-playsinline preload="auto"></video>
+  </div>
+</body>
+</html>`;
+}
+
+function InAppWebPlayerModal({
+  item,
+  onClose,
+  onOpenExternal,
+  serverUrl,
+  settings,
+  token,
+}: {
+  item: JellyfinItem;
+  onClose: () => void;
+  onOpenExternal: (item: JellyfinItem) => void;
+  serverUrl: string;
+  settings: AppSettings;
+  token: string;
+}) {
+  const streamUrl = useMemo(
+    () => getStreamUrl(serverUrl, item, token, { forceDirectPlay: settings.forceDirectPlay }),
+    [item, serverUrl, settings.forceDirectPlay, token],
+  );
+  const html = useMemo(() => buildVideoPlayerHtml(streamUrl, item.Name), [item.Name, streamUrl]);
+
+  return (
+    <Modal animationType="slide" onRequestClose={onClose} visible>
+      <SafeAreaView style={styles.webPlayerScreen}>
+        <StatusBar style="light" />
+        <View style={styles.webPlayerHeader}>
+          <Text numberOfLines={1} style={styles.webPlayerTitle}>{item.Name}</Text>
+          <Button label="mpv" onPress={() => onOpenExternal(item)} variant="secondary" />
+          <Button label="Close" onPress={onClose} variant="secondary" />
+        </View>
+        <WebView
+          allowsFullscreenVideo
+          allowsInlineMediaPlayback
+          javaScriptEnabled
+          mediaPlaybackRequiresUserAction={false}
+          originWhitelist={["*"]}
+          source={{ html, baseUrl: serverUrl }}
+          style={styles.webPlayer}
+        />
       </SafeAreaView>
     </Modal>
   );
@@ -1346,6 +1456,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     marginTop: spacing.lg,
+  },
+
+  webPlayer: {
+    backgroundColor: '#000',
+    flex: 1,
+  },
+  webPlayerHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  webPlayerScreen: {
+    backgroundColor: '#000',
+    flex: 1,
+  },
+  webPlayerTitle: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '900',
   },
   title: {
     color: colors.text,
