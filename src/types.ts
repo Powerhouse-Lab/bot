@@ -54,6 +54,15 @@ export type JellyfinMediaSource = {
   SupportsTranscoding?: boolean;
 };
 
+export type JellyfinPlaybackEvent = {
+  ItemId: string;
+  MediaSourceId?: string;
+  PositionTicks: number;
+  PlayMethod: 'DirectPlay' | 'DirectStream' | 'Transcode';
+  IsPaused: boolean;
+  CanSeek: boolean;
+};
+
 export type JellyfinItem = {
   Id: string;
   Name: string;

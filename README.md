@@ -10,7 +10,7 @@ A lightweight Expo React Native mobile client for Jellyfin. The app signs in to 
 - Home dashboard with user libraries, continue watching, and recently added media.
 - Library browsing with selectable Jellyfin collections.
 - Server-wide search across movies, shows, episodes, albums, and songs.
-- Item detail sheets with overview, runtime, progress, favorite toggling, and a crash-safe **Play with mpv** action that targets mpv-android before falling back to another device player.
+- Item detail sheets with overview, runtime, progress, favorite toggling, **Play in app**, and a crash-safe **Open with mpv** action that targets mpv-android before falling back to another device player.
 - Pull-to-refresh and sign-out support.
 - Dark Jellyfin-inspired mobile UI.
 
@@ -45,7 +45,7 @@ Then open the app in Expo Go or an emulator and enter your Jellyfin server URL p
 
 ## Playback and caching
 
-Playback requests Jellyfin direct streams by default (`Static=true`) to avoid server transcoding. **Play in app** opens a full-screen in-app WebView HTML5 player using the Jellyfin stream URL, so it no longer redirects straight to a browser/Google Drive-style handler. **Open with mpv** uses an Android package-targeted intent for mpv-android (`is.xyz.mpv`), then falls back to any registered device player if mpv is not installed. mpv-android is based on libmpv, but it is not shipped as an AAR library for direct embedding in this Expo app, so this build keeps mpv as the external fallback instead of bundling native libmpv inside the APK.
+Playback requests Jellyfin direct streams by default (`Static=true`) to avoid server transcoding. **Play in app** opens a full-screen in-app WebView HTML5 player using the Jellyfin stream URL, supports both video and audio items, and reports start/progress/stop events back to Jellyfin so resume status can stay current. **Open with mpv** uses an Android package-targeted intent for mpv-android (`is.xyz.mpv`), then falls back to any registered device player if mpv is not installed. mpv-android is based on libmpv, but it is not shipped as an AAR library for direct embedding in this Expo app, so this build keeps mpv as the external fallback instead of bundling native libmpv inside the APK.
 
 Video cache controls remain visible for settings compatibility, but native video caching is disabled in this crash-safe APK because the native video module was removed.
 
