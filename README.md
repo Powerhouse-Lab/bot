@@ -45,7 +45,7 @@ Then open the app in Expo Go or an emulator and enter your Jellyfin server URL p
 
 ## Playback and caching
 
-Playback requests Jellyfin direct streams by default (`Static=true`) to avoid server transcoding. **Play in app** opens a full-screen player using the Jellyfin stream URL, supports both video and audio items, and reports start/progress/stop events back to Jellyfin so resume status can stay current. Android builds bundle `dev.jdtech.mpv:libmpv:1.0.0` through the local `react-native-jellyfin-libmpv` native view, so playback stays inside this app instead of requiring mpv-android or another external player. Non-Android targets keep the HTML5 WebView player fallback.
+Playback requests Jellyfin direct streams by default (`Static=true`) to avoid server transcoding. **Play in app** opens a full-screen player using the Jellyfin stream URL, supports both video and audio items, and reports start/progress/stop events back to Jellyfin so resume status can stay current. Android builds bundle `dev.jdtech.mpv:libmpv:0.4.1` through the local `react-native-jellyfin-libmpv` native view, so playback stays inside this app instead of requiring mpv-android or another external player. The bundled version is pinned below `1.0.0` because Expo SDK 53 generates an Android app that compiles against API 35, while newer libmpv artifacts require API 36. Non-Android targets keep the HTML5 WebView player fallback.
 
 Video cache controls remain visible for settings compatibility, but native video caching is disabled in this crash-safe APK because the native video module was removed.
 
