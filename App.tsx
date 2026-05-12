@@ -38,7 +38,7 @@ import {
 } from './src/api/jellyfin';
 import { Button } from './src/components/Button';
 import { EmptyState } from './src/components/EmptyState';
-import { openWithMpvAndroid } from './src/playback/mpv';
+import { LibMpvPlayer, LibMpvPlayerMessage } from './src/playback/LibMpvPlayer';
 import { clearSession, loadSession, saveSession } from './src/storage/session';
 import { defaultSettings, loadSettings, saveSettings } from './src/storage/settings';
 import { colors, spacing } from './src/theme';
@@ -272,24 +272,6 @@ export default function App() {
     setPlaybackItem(item);
   }, []);
 
-  const handlePlayExternal = useCallback(async (item: JellyfinItem) => {
-    if (!session) {
-      return;
-    }
-
-    setDetailError(undefined);
-    if (!isPlayableMedia(item)) {
-      setDetailError('This item is not a playable audio or video file. Open an episode, movie, or track instead.');
-      return;
-    }
-
-    try {
-      await openWithMpvAndroid(getStreamUrl(session.serverUrl, item, session.accessToken, { forceDirectPlay: settings.forceDirectPlay }), item);
-    } catch (error) {
-      setDetailError(error instanceof Error ? error.message : 'Unable to open this item in mpv or another external player.');
-    }
-  }, [session, settings.forceDirectPlay]);
-
   if (isBooting) {
     return (
       <SafeAreaView style={styles.container}>
@@ -449,7 +431,6 @@ export default function App() {
           setSelectedItem(undefined);
           setDetailError(undefined);
         }}
-        onPlayExternal={handlePlayExternal}
         onPlayInApp={handlePlayInApp}
         onToggleFavorite={handleToggleFavorite}
         serverUrl={session.serverUrl}
@@ -460,7 +441,6 @@ export default function App() {
         <InAppWebPlayerModal
           item={playbackItem}
           onClose={() => setPlaybackItem(undefined)}
-          onOpenExternal={handlePlayExternal}
           serverUrl={session.serverUrl}
           settings={settings}
           token={session.accessToken}
@@ -840,7 +820,6 @@ function ItemDetailsModal({
   detailError,
   item,
   onClose,
-  onPlayExternal,
   onPlayInApp,
   onToggleFavorite,
   serverUrl,
@@ -849,7 +828,6 @@ function ItemDetailsModal({
   detailError?: string;
   item?: JellyfinItem;
   onClose: () => void;
-  onPlayExternal: (item: JellyfinItem) => void;
   onPlayInApp: (item: JellyfinItem) => void;
   onToggleFavorite: (item: JellyfinItem) => void;
   serverUrl: string;
@@ -928,7 +906,6 @@ function ItemDetailsModal({
             {playable ? (
               <>
                 <Button label="Play in app" onPress={() => onPlayInApp(item)} />
-                <Button label="Open with mpv" onPress={() => onPlayExternal(item)} variant="secondary" />
               </>
             ) : (
               <Text style={styles.mutedText}>Open a movie, episode, or track to start playback.</Text>
@@ -956,11 +933,8 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-type PlayerMessage = {
-  type: 'ready' | 'play' | 'pause' | 'progress' | 'ended' | 'error';
-  currentTime?: number;
+type PlayerMessage = LibMpvPlayerMessage & {
   duration?: number;
-  message?: string;
 };
 
 function buildMediaPlayerHtml(streamUrl: string, title: string, mediaKind: 'audio' | 'video'): string {
@@ -1027,14 +1001,12 @@ function buildMediaPlayerHtml(streamUrl: string, title: string, mediaKind: 'audi
 function InAppWebPlayerModal({
   item,
   onClose,
-  onOpenExternal,
   serverUrl,
   settings,
   token,
 }: {
   item: JellyfinItem;
   onClose: () => void;
-  onOpenExternal: (item: JellyfinItem) => void;
   serverUrl: string;
   settings: AppSettings;
   token: string;
@@ -1112,26 +1084,34 @@ function InAppWebPlayerModal({
             <Text numberOfLines={1} style={styles.webPlayerTitle}>{item.Name}</Text>
             <Text numberOfLines={1} style={styles.webPlayerStatus}>{playerStatus}</Text>
           </View>
-          <Button label="mpv" onPress={() => onOpenExternal(item)} variant="secondary" />
           <Button label="Close" onPress={handleClose} variant="secondary" />
         </View>
-        <WebView
-          allowsFullscreenVideo
-          allowsInlineMediaPlayback
-          javaScriptEnabled
-          mediaPlaybackRequiresUserAction={false}
-          mixedContentMode="always"
-          onMessage={(event) => {
-            try {
-              reportProgress(JSON.parse(event.nativeEvent.data) as PlayerMessage);
-            } catch {
-              setPlayerStatus('Received an unreadable player update.');
-            }
-          }}
-          originWhitelist={["*"]}
-          source={{ html, baseUrl: serverUrl }}
-          style={styles.webPlayer}
-        />
+        {Platform.OS === 'android' ? (
+          <LibMpvPlayer
+            onPlayerEvent={(event) => reportProgress(event.nativeEvent)}
+            sourceUrl={streamUrl}
+            style={styles.webPlayer}
+            title={item.Name}
+          />
+        ) : (
+          <WebView
+            allowsFullscreenVideo
+            allowsInlineMediaPlayback
+            javaScriptEnabled
+            mediaPlaybackRequiresUserAction={false}
+            mixedContentMode="always"
+            onMessage={(event) => {
+              try {
+                reportProgress(JSON.parse(event.nativeEvent.data) as PlayerMessage);
+              } catch {
+                setPlayerStatus('Received an unreadable player update.');
+              }
+            }}
+            originWhitelist={["*"]}
+            source={{ html, baseUrl: serverUrl }}
+            style={styles.webPlayer}
+          />
+        )}
       </SafeAreaView>
     </Modal>
   );

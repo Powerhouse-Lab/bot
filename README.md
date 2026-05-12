@@ -10,7 +10,7 @@ A lightweight Expo React Native mobile client for Jellyfin. The app signs in to 
 - Home dashboard with user libraries, continue watching, and recently added media.
 - Library browsing with selectable Jellyfin collections.
 - Server-wide search across movies, shows, episodes, albums, and songs.
-- Item detail sheets with overview, runtime, progress, favorite toggling, **Play in app**, and a crash-safe **Open with mpv** action that targets mpv-android before falling back to another device player.
+- Item detail sheets with overview, runtime, progress, favorite toggling, and **Play in app** powered by bundled libmpv on Android.
 - Pull-to-refresh and sign-out support.
 - Dark Jellyfin-inspired mobile UI.
 
@@ -18,7 +18,7 @@ A lightweight Expo React Native mobile client for Jellyfin. The app signs in to 
 
 ## Core client coverage
 
-This scaffold now covers the important pieces expected from a Jellyfin mobile client: authentication, persisted sessions, library browsing, search, resume/continue watching, recently added media, poster art, favorite management, item details, and in-app WebView playback plus mpv-first fallback through a player registered on the device.
+This scaffold now covers the important pieces expected from a Jellyfin mobile client: authentication, persisted sessions, library browsing, search, resume/continue watching, recently added media, poster art, favorite management, item details, and in-app playback with a bundled Android libmpv native view and an HTML5 WebView fallback on non-Android platforms.
 
 ## Preview
 
@@ -45,7 +45,7 @@ Then open the app in Expo Go or an emulator and enter your Jellyfin server URL p
 
 ## Playback and caching
 
-Playback requests Jellyfin direct streams by default (`Static=true`) to avoid server transcoding. **Play in app** opens a full-screen in-app WebView HTML5 player using the Jellyfin stream URL, supports both video and audio items, and reports start/progress/stop events back to Jellyfin so resume status can stay current. **Open with mpv** uses an Android package-targeted intent for mpv-android (`is.xyz.mpv`), then falls back to any registered device player if mpv is not installed. mpv-android is based on libmpv, but it is not shipped as an AAR library for direct embedding in this Expo app, so this build keeps mpv as the external fallback instead of bundling native libmpv inside the APK.
+Playback requests Jellyfin direct streams by default (`Static=true`) to avoid server transcoding. **Play in app** opens a full-screen player using the Jellyfin stream URL, supports both video and audio items, and reports start/progress/stop events back to Jellyfin so resume status can stay current. Android builds bundle `dev.jdtech.mpv:libmpv:1.0.0` through the local `react-native-jellyfin-libmpv` native view, so playback stays inside this app instead of requiring mpv-android or another external player. Non-Android targets keep the HTML5 WebView player fallback.
 
 Video cache controls remain visible for settings compatibility, but native video caching is disabled in this crash-safe APK because the native video module was removed.
 
@@ -91,7 +91,7 @@ npm run build:android:apk
 
 The local command generates a native Android project with Expo prebuild and runs Gradle's `assembleRelease` task. If you need a Play Store artifact instead of a sideloadable APK, configure EAS Build or Gradle to produce an Android App Bundle (`.aab`).
 
-If you previously built an APK from the earlier dependency ranges, delete `node_modules` and reinstall before rebuilding so React stays pinned to `19.0.0`, TypeScript installs from the published `5.8.3` release, and React matches React Native's renderer. The Android version was bumped to `0.1.6` / `versionCode` 7 so devices install this mpv-first crash-safe APK over the earlier crashing builds. The GitHub workflow starts from a clean checkout, verifies the installed React and Expo native module versions, and forces the old React Native architecture for the generated APK.
+If you previously built an APK from the earlier dependency ranges, delete `node_modules` and reinstall before rebuilding so React stays pinned to `19.0.0`, TypeScript installs from the published `5.8.3` release, and React matches React Native's renderer. The Android version was bumped to `0.1.6` / `versionCode` 7 so devices install this bundled-libmpv crash-safe APK over the earlier crashing builds. The GitHub workflow starts from a clean checkout, verifies the installed React and Expo native module versions, and forces the old React Native architecture for the generated APK.
 
 ## Notes
 
