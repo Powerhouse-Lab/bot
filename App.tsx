@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -29,12 +29,16 @@ import {
   getResumeItems,
   getStreamUrl,
   isPlayableMedia,
+  reportPlaybackProgress,
+  reportPlaybackStart,
+  reportPlaybackStopped,
   searchItems,
+  secondsToTicks,
   setFavorite,
 } from './src/api/jellyfin';
 import { Button } from './src/components/Button';
 import { EmptyState } from './src/components/EmptyState';
-import { openWithMpvAndroid } from './src/playback/mpv';
+import { LibMpvPlayer, LibMpvPlayerMessage } from './src/playback/LibMpvPlayer';
 import { clearSession, loadSession, saveSession } from './src/storage/session';
 import { defaultSettings, loadSettings, saveSettings } from './src/storage/settings';
 import { colors, spacing } from './src/theme';
@@ -268,24 +272,6 @@ export default function App() {
     setPlaybackItem(item);
   }, []);
 
-  const handlePlayExternal = useCallback(async (item: JellyfinItem) => {
-    if (!session) {
-      return;
-    }
-
-    setDetailError(undefined);
-    if (!isPlayableMedia(item)) {
-      setDetailError('This item is not a playable audio or video file. Open an episode, movie, or track instead.');
-      return;
-    }
-
-    try {
-      await openWithMpvAndroid(getStreamUrl(session.serverUrl, item, session.accessToken, { forceDirectPlay: settings.forceDirectPlay }), item);
-    } catch (error) {
-      setDetailError(error instanceof Error ? error.message : 'Unable to open this item in mpv or another external player.');
-    }
-  }, [session, settings.forceDirectPlay]);
-
   if (isBooting) {
     return (
       <SafeAreaView style={styles.container}>
@@ -445,7 +431,6 @@ export default function App() {
           setSelectedItem(undefined);
           setDetailError(undefined);
         }}
-        onPlayExternal={handlePlayExternal}
         onPlayInApp={handlePlayInApp}
         onToggleFavorite={handleToggleFavorite}
         serverUrl={session.serverUrl}
@@ -456,7 +441,6 @@ export default function App() {
         <InAppWebPlayerModal
           item={playbackItem}
           onClose={() => setPlaybackItem(undefined)}
-          onOpenExternal={handlePlayExternal}
           serverUrl={session.serverUrl}
           settings={settings}
           token={session.accessToken}
@@ -836,7 +820,6 @@ function ItemDetailsModal({
   detailError,
   item,
   onClose,
-  onPlayExternal,
   onPlayInApp,
   onToggleFavorite,
   serverUrl,
@@ -845,7 +828,6 @@ function ItemDetailsModal({
   detailError?: string;
   item?: JellyfinItem;
   onClose: () => void;
-  onPlayExternal: (item: JellyfinItem) => void;
   onPlayInApp: (item: JellyfinItem) => void;
   onToggleFavorite: (item: JellyfinItem) => void;
   serverUrl: string;
@@ -924,7 +906,6 @@ function ItemDetailsModal({
             {playable ? (
               <>
                 <Button label="Play in app" onPress={() => onPlayInApp(item)} />
-                <Button label="Open with mpv" onPress={() => onPlayExternal(item)} variant="secondary" />
               </>
             ) : (
               <Text style={styles.mutedText}>Open a movie, episode, or track to start playback.</Text>
@@ -952,27 +933,67 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-function buildVideoPlayerHtml(streamUrl: string, title: string): string {
+type PlayerMessage = LibMpvPlayerMessage & {
+  duration?: number;
+};
+
+function buildMediaPlayerHtml(streamUrl: string, title: string, mediaKind: 'audio' | 'video'): string {
   const safeUrl = escapeHtml(streamUrl);
   const safeTitle = escapeHtml(title);
+  const mediaTag = mediaKind === 'audio' ? 'audio' : 'video';
 
   return `<!doctype html>
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <style>
-    html, body { margin: 0; height: 100%; background: #000; color: #f6f7fb; font-family: sans-serif; }
+    html, body { margin: 0; height: 100%; background: #000; color: #f6f7fb; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
     body { display: flex; flex-direction: column; }
     .title { padding: 10px 14px; background: #10131f; font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .wrap { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; }
+    .wrap { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; padding: ${mediaKind === 'audio' ? '24px' : '0'}; }
     video { width: 100%; height: 100%; background: #000; }
+    audio { width: 100%; max-width: 760px; }
+    .hint { color: #8b93a7; font-size: 13px; margin-top: 14px; text-align: center; }
   </style>
 </head>
 <body>
   <div class="title">${safeTitle}</div>
   <div class="wrap">
-    <video src="${safeUrl}" controls autoplay playsinline webkit-playsinline preload="auto"></video>
+    <div style="width:100%">
+      <${mediaTag} id="player" src="${safeUrl}" controls autoplay playsinline webkit-playsinline preload="auto"></${mediaTag}>
+      ${mediaKind === 'audio' ? '<div class="hint">Audio is playing inside the app.</div>' : ''}
+    </div>
   </div>
+  <script>
+    (function () {
+      var player = document.getElementById('player');
+      var lastProgress = 0;
+      function send(type, extra) {
+        var payload = Object.assign({
+          type: type,
+          currentTime: player.currentTime || 0,
+          duration: Number.isFinite(player.duration) ? player.duration : 0
+        }, extra || {});
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+      }
+      player.addEventListener('loadedmetadata', function () { send('ready'); });
+      player.addEventListener('play', function () { send('play'); });
+      player.addEventListener('pause', function () { send('pause'); });
+      player.addEventListener('ended', function () { send('ended'); });
+      player.addEventListener('error', function () {
+        var error = player.error;
+        send('error', { message: error ? 'Playback error code ' + error.code : 'Unable to play this stream.' });
+      });
+      player.addEventListener('timeupdate', function () {
+        var now = Date.now();
+        if (now - lastProgress > 10000) {
+          lastProgress = now;
+          send('progress');
+        }
+      });
+      send('ready');
+    })();
+  </script>
 </body>
 </html>`;
 }
@@ -980,42 +1001,117 @@ function buildVideoPlayerHtml(streamUrl: string, title: string): string {
 function InAppWebPlayerModal({
   item,
   onClose,
-  onOpenExternal,
   serverUrl,
   settings,
   token,
 }: {
   item: JellyfinItem;
   onClose: () => void;
-  onOpenExternal: (item: JellyfinItem) => void;
   serverUrl: string;
   settings: AppSettings;
   token: string;
 }) {
+  const [playerStatus, setPlayerStatus] = useState('Loading player…');
+  const lastPositionTicksRef = useRef(item.UserData?.PlaybackPositionTicks ?? 0);
+  const hasStartedRef = useRef(false);
+  const mediaKind = item.MediaType === 'Audio' || item.Type === 'Audio' ? 'audio' : 'video';
   const streamUrl = useMemo(
     () => getStreamUrl(serverUrl, item, token, { forceDirectPlay: settings.forceDirectPlay }),
     [item, serverUrl, settings.forceDirectPlay, token],
   );
-  const html = useMemo(() => buildVideoPlayerHtml(streamUrl, item.Name), [item.Name, streamUrl]);
+  const html = useMemo(() => buildMediaPlayerHtml(streamUrl, item.Name, mediaKind), [item.Name, mediaKind, streamUrl]);
+
+  const reportProgress = useCallback((message: PlayerMessage, force = false) => {
+    const positionTicks = secondsToTicks(message.currentTime ?? 0);
+    lastPositionTicksRef.current = positionTicks;
+
+    if (!force && message.type === 'ready') {
+      setPlayerStatus('Ready to play');
+      return;
+    }
+
+    if (message.type === 'play' && !hasStartedRef.current) {
+      hasStartedRef.current = true;
+      setPlayerStatus('Playing in app');
+      reportPlaybackStart(serverUrl, token, item, positionTicks).catch(() => {
+        setPlayerStatus('Playing in app · unable to report start to Jellyfin');
+      });
+      return;
+    }
+
+    if (message.type === 'pause') {
+      setPlayerStatus('Paused');
+      reportPlaybackProgress(serverUrl, token, item, positionTicks, true).catch(() => {
+        setPlayerStatus('Paused · unable to report progress to Jellyfin');
+      });
+      return;
+    }
+
+    if (message.type === 'ended') {
+      setPlayerStatus('Finished');
+      reportPlaybackStopped(serverUrl, token, item, positionTicks).catch(() => {
+        setPlayerStatus('Finished · unable to report stop to Jellyfin');
+      });
+      return;
+    }
+
+    if (message.type === 'error') {
+      setPlayerStatus(message.message ?? 'This device could not play the stream in app.');
+      return;
+    }
+
+    if (hasStartedRef.current || force) {
+      setPlayerStatus('Playing in app');
+      reportPlaybackProgress(serverUrl, token, item, positionTicks, false).catch(() => {
+        setPlayerStatus('Playing in app · unable to report progress to Jellyfin');
+      });
+    }
+  }, [item, serverUrl, token]);
+
+  const handleClose = useCallback(() => {
+    if (hasStartedRef.current) {
+      reportPlaybackStopped(serverUrl, token, item, lastPositionTicksRef.current).catch(() => undefined);
+    }
+    onClose();
+  }, [item, onClose, serverUrl, token]);
 
   return (
-    <Modal animationType="slide" onRequestClose={onClose} visible>
+    <Modal animationType="slide" onRequestClose={handleClose} visible>
       <SafeAreaView style={styles.webPlayerScreen}>
         <StatusBar style="light" />
         <View style={styles.webPlayerHeader}>
-          <Text numberOfLines={1} style={styles.webPlayerTitle}>{item.Name}</Text>
-          <Button label="mpv" onPress={() => onOpenExternal(item)} variant="secondary" />
-          <Button label="Close" onPress={onClose} variant="secondary" />
+          <View style={styles.flex}>
+            <Text numberOfLines={1} style={styles.webPlayerTitle}>{item.Name}</Text>
+            <Text numberOfLines={1} style={styles.webPlayerStatus}>{playerStatus}</Text>
+          </View>
+          <Button label="Close" onPress={handleClose} variant="secondary" />
         </View>
-        <WebView
-          allowsFullscreenVideo
-          allowsInlineMediaPlayback
-          javaScriptEnabled
-          mediaPlaybackRequiresUserAction={false}
-          originWhitelist={["*"]}
-          source={{ html, baseUrl: serverUrl }}
-          style={styles.webPlayer}
-        />
+        {Platform.OS === 'android' ? (
+          <LibMpvPlayer
+            onPlayerEvent={(event) => reportProgress(event.nativeEvent)}
+            sourceUrl={streamUrl}
+            style={styles.webPlayer}
+            title={item.Name}
+          />
+        ) : (
+          <WebView
+            allowsFullscreenVideo
+            allowsInlineMediaPlayback
+            javaScriptEnabled
+            mediaPlaybackRequiresUserAction={false}
+            mixedContentMode="always"
+            onMessage={(event) => {
+              try {
+                reportProgress(JSON.parse(event.nativeEvent.data) as PlayerMessage);
+              } catch {
+                setPlayerStatus('Received an unreadable player update.');
+              }
+            }}
+            originWhitelist={["*"]}
+            source={{ html, baseUrl: serverUrl }}
+            style={styles.webPlayer}
+          />
+        )}
       </SafeAreaView>
     </Modal>
   );
@@ -1472,9 +1568,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     flex: 1,
   },
+  webPlayerStatus: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: spacing.xs,
+  },
   webPlayerTitle: {
     color: colors.text,
-    flex: 1,
     fontSize: 16,
     fontWeight: '900',
   },
