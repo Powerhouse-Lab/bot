@@ -1,0 +1,38 @@
+buildscript {
+  repositories {
+    google()
+    mavenCentral()
+  }
+  dependencies {
+    classpath("com.android.tools.build:gradle:8.7.3")
+  }
+}
+
+apply plugin: "com.android.library"
+
+android {
+  namespace "com.jellyfinmobile.libmpv"
+  compileSdkVersion rootProject.ext.has("compileSdkVersion") ? rootProject.ext.compileSdkVersion : 35
+
+  defaultConfig {
+    minSdkVersion rootProject.ext.has("minSdkVersion") ? rootProject.ext.minSdkVersion : 23
+    targetSdkVersion rootProject.ext.has("targetSdkVersion") ? rootProject.ext.targetSdkVersion : 35
+  }
+}
+
+repositories {
+  google()
+  mavenCentral()
+}
+
+dependencies {
+  implementation "com.facebook.react:react-android"
+  // libmpv 1.0.0 declares compileSdk 36 metadata, but Expo SDK 53
+  // generates an Android app that compiles against API 35. Keep this
+  // dependency strict so Gradle cannot upgrade it back to an API 36-only AAR.
+  implementation("dev.jdtech.mpv:libmpv") {
+    version {
+      strictly "0.4.1"
+    }
+  }
+}

@@ -12,6 +12,7 @@ const expected = {
   'react-native-webview': '13.13.5',
   expo: '53.0.0',
   'expo-asset': '11.1.3',
+  'expo-build-properties': '0.14.5',
   'expo-constants': '17.1.3',
   'expo-file-system': '18.1.7',
   'expo-font': '13.2.2',

@@ -3,6 +3,7 @@ import {
   ItemListResponse,
   JellyfinItem,
   JellyfinLibrary,
+  JellyfinPlaybackEvent,
   JellyfinUserData,
   PublicSystemInfo,
 } from '../types';
@@ -69,7 +70,12 @@ async function request<T>(serverUrl: string, path: string, init: RequestInit = {
     throw new JellyfinApiError(message, response.status);
   }
 
-  return (await response.json()) as T;
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const text = await response.text();
+  return text ? (JSON.parse(text) as T) : (undefined as T);
 }
 
 export async function getPublicSystemInfo(serverUrl: string): Promise<PublicSystemInfo> {
@@ -211,7 +217,7 @@ export function formatRuntime(ticks?: number): string | undefined {
   return `${hours}h ${remainingMinutes}m`;
 }
 
-function getPreferredMediaSource(item: JellyfinItem) {
+export function getPreferredMediaSource(item: JellyfinItem) {
   return item.MediaSources?.find((source) => source.SupportsDirectPlay) ?? item.MediaSources?.[0];
 }
 
@@ -258,6 +264,50 @@ export function getStreamUrl(
   const mediaRoute = item.MediaType === 'Audio' || item.Type === 'Audio' ? 'Audio' : 'Videos';
 
   return `${serverUrl}/${mediaRoute}/${encodeURIComponent(item.Id)}/stream${streamExtension}?${params.toString()}`;
+}
+
+export function secondsToTicks(seconds: number): number {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return 0;
+  }
+
+  return Math.round(seconds * 10_000_000);
+}
+
+function buildPlaybackEvent(item: JellyfinItem, positionTicks: number, isPaused: boolean): JellyfinPlaybackEvent {
+  const mediaSource = getPreferredMediaSource(item);
+  return {
+    ItemId: item.Id,
+    MediaSourceId: mediaSource?.Id,
+    PositionTicks: positionTicks,
+    PlayMethod: 'DirectPlay',
+    IsPaused: isPaused,
+    CanSeek: true,
+  };
+}
+
+async function reportPlaybackEvent(
+  serverUrl: string,
+  token: string,
+  endpoint: '/Sessions/Playing' | '/Sessions/Playing/Progress' | '/Sessions/Playing/Stopped',
+  event: JellyfinPlaybackEvent,
+): Promise<void> {
+  await request<unknown>(serverUrl, endpoint, {
+    method: 'POST',
+    body: JSON.stringify(event),
+  }, token);
+}
+
+export async function reportPlaybackStart(serverUrl: string, token: string, item: JellyfinItem, positionTicks = 0): Promise<void> {
+  await reportPlaybackEvent(serverUrl, token, '/Sessions/Playing', buildPlaybackEvent(item, positionTicks, false));
+}
+
+export async function reportPlaybackProgress(serverUrl: string, token: string, item: JellyfinItem, positionTicks: number, isPaused: boolean): Promise<void> {
+  await reportPlaybackEvent(serverUrl, token, '/Sessions/Playing/Progress', buildPlaybackEvent(item, positionTicks, isPaused));
+}
+
+export async function reportPlaybackStopped(serverUrl: string, token: string, item: JellyfinItem, positionTicks: number): Promise<void> {
+  await reportPlaybackEvent(serverUrl, token, '/Sessions/Playing/Stopped', buildPlaybackEvent(item, positionTicks, false));
 }
 
 export function formatProgress(item: JellyfinItem): string | undefined {

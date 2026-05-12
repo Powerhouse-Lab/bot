@@ -21,7 +21,16 @@
     "web": {
       "bundler": "metro"
     },
-    "plugins": [],
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ]
+    ],
     "newArchEnabled": false
   }
 }
